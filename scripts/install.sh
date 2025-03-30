@@ -214,7 +214,10 @@ EOF
     
     # Copy source files
     sudo cp -r "$source_dir/src/"* "$INSTALL_DIR/"
-    sudo chmod +x "$INSTALL_DIR/"*.sh
+    
+    # Make all shell scripts executable
+    echo -e "${CYAN}Making all scripts executable...${NC}"
+    sudo find "$INSTALL_DIR" -type f -name "*.sh" -exec chmod +x {} \;
     
     # Copy config files
     if [[ -d "$source_dir/config" ]]; then

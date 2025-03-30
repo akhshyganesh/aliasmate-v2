@@ -64,8 +64,15 @@ source ~/.bashrc
 ### Manual Installation
 
 ```bash
+# Clone the repository
 git clone https://github.com/akhshyganesh/aliasmate-v2.git
 cd aliasmate-v2
+
+# Make all shell scripts executable
+chmod +x scripts/make_executable.sh
+./scripts/make_executable.sh
+
+# Build and install
 ./scripts/build.sh
 sudo ./scripts/install.sh
 ```

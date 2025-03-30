@@ -64,6 +64,8 @@ To set up your local development environment:
 - Keep line length under 100 characters where possible
 - Use descriptive variable and function names
 - Add comments for complex logic
+- **Make all shell scripts executable** with `chmod +x filename.sh`
+- Start all shell scripts with `#!/usr/bin/env bash`
 
 ### Testing
 

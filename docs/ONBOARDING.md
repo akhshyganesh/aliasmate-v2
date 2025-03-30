@@ -12,10 +12,10 @@ AliasMate is a command management tool that helps you store, organize, and execu
 
 ```bash
 # Using curl
-curl -sSL https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scripts/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/scripts/install.sh | bash
 
 # Using wget
-wget -qO- https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scripts/install.sh | bash
+wget -qO- https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/scripts/install.sh | bash
 ```
 
 ### Manual Installation
