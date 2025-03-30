@@ -1,0 +1,23 @@
+# AliasMate v2 Default Configuration
+
+# Storage location for commands and metadata
+COMMAND_STORE: $HOME/.local/share/aliasmate
+
+# Logging settings
+LOG_FILE: /tmp/aliasmate.log
+LOG_LEVEL: info
+
+# Feature toggles
+VERSION_CHECK: true
+ENABLE_STATS: true
+
+# User interface settings
+EDITOR: nano
+DEFAULT_UI: cli
+THEME: default
+
+# Synchronization settings
+SYNC_ENABLED: false
+SYNC_PROVIDER: 
+SYNC_REPO: 
+SYNC_INTERVAL: 3600

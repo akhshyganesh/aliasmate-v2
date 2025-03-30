@@ -1,0 +1,42 @@
+# AliasMate specific
+dist/
+build/
+.cache/
+
+# Temporary files
+tmp/
+.tmp/
+*.tmp
+*.bak
+*.swp
+*.log
+
+# Development environment
+.vscode/
+.idea/
+
+# macOS specific
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Linux specific
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# Windows specific
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.stackdump
+*.lnk
+
+# Test directories
+test_results/
+tests/fixtures/

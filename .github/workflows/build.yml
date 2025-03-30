@@ -1,0 +1,35 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run shellcheck
+        run: |
+          sudo apt-get install -y shellcheck
+          find . -type f -name "*.sh" -exec shellcheck {} \;
+      - name: Run tests
+        run: ./scripts/run_tests.sh
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build package
+        run: ./scripts/build.sh
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: aliasmate-packages
+          path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.tar.gz
