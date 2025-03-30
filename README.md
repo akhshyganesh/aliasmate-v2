@@ -55,6 +55,9 @@ sudo ./scripts/install.sh
 ## Quick Start
 
 ```bash
+# Launch the interactive tutorial to learn basics
+aliasmate tutorial
+
 # Launch the TUI (recommended for beginners)
 aliasmate --tui
 
@@ -79,7 +82,12 @@ aliasmate search kubernetes
 
 ## Documentation
 
-For complete documentation, visit our [User Guide](docs/index.md).
+For detailed documentation and guides:
+
+- Run `aliasmate tutorial` for an interactive onboarding experience
+- Check out [Onboarding Guide](docs/ONBOARDING.md) for a step-by-step getting started guide
+- Read the [User Manual](docs/USER_MANUAL.md) for comprehensive documentation
+- Browse the [FAQ](docs/FAQ.md) for common questions and answers
 
 ### Core Commands
 

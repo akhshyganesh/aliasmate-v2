@@ -26,6 +26,7 @@ source "$SCRIPT_DIR/search.sh"
 source "$SCRIPT_DIR/sync.sh"
 source "$SCRIPT_DIR/stats.sh"
 source "$SCRIPT_DIR/batch.sh"
+source "$SCRIPT_DIR/tutorials.sh"
 
 # Load configuration
 load_config
@@ -138,12 +139,16 @@ ${BOLD}COMMANDS:${NC}
          pull               Pull aliases from cloud
          status             Check sync status
 
+  ${CYAN}Tutorials:${NC}
+    tutorial, learn         Run interactive tutorials for beginners
+         onboarding         Start onboarding tutorial
+
 ${BOLD}EXAMPLES:${NC}
   aliasmate save build-app "npm run build"
   aliasmate run build-app
   aliasmate ls --category development
   aliasmate search "database"
-  aliasmate sync setup --provider github
+  aliasmate tutorial onboarding
 
 ${BOLD}DOCUMENTATION:${NC}
   For complete documentation, visit:
@@ -159,7 +164,7 @@ show_quick_help() {
     echo -e " - ${YELLOW}run <alias>${NC}: Run a command"
     echo -e " - ${YELLOW}ls${NC}: List all commands"
     echo -e " - ${YELLOW}search <term>${NC}: Search commands"
-    echo -e " - ${YELLOW}--tui${NC}: Launch interactive interface"
+    echo -e " - ${YELLOW}tutorial${NC}: Run interactive tutorials"
     echo -e "Use ${YELLOW}aliasmate --help${NC} for full documentation"
 }
 
@@ -295,6 +300,16 @@ main() {
         batch)
             shift
             handle_batch "$@"
+            ;;
+            
+        tutorial|learn)
+            shift
+            if [[ $# -eq 0 ]]; then
+                run_onboarding
+            else
+                show_tutorial "$1"
+            fi
+            exit 0
             ;;
             
         *)

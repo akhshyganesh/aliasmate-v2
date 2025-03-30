@@ -234,6 +234,25 @@ install_package() {
     echo -e "${CYAN}Try running: aliasmate --help${NC}"
 }
 
+# Function to perform post-installation steps
+post_install() {
+    echo -e "\n${GREEN}AliasMate v2 has been successfully installed!${NC}"
+    
+    # Offer to run the onboarding tutorial
+    if [[ -t 0 && -t 1 ]]; then  # Only offer if running in an interactive terminal
+        echo -e "\nWould you like to run the onboarding tutorial? [y/N]"
+        read -r run_tutorial
+        if [[ "$run_tutorial" =~ ^[Yy] ]]; then
+            aliasmate tutorial onboarding
+        else
+            echo -e "\nYou can run the tutorial anytime with: ${YELLOW}aliasmate tutorial${NC}"
+            echo -e "For basic usage, run: ${YELLOW}aliasmate --help${NC}"
+        fi
+    fi
+    
+    echo -e "\n${GREEN}Installation complete. Enjoy using AliasMate!${NC}"
+}
+
 # Function to clean up temporary files
 cleanup() {
     echo -e "\n${CYAN}Cleaning up...${NC}"
@@ -253,6 +272,9 @@ main() {
     echo -e "${YELLOW}To get started, run:${NC} aliasmate --help"
     echo -e "${YELLOW}Or launch the TUI:${NC} aliasmate --tui"
     echo -e "${YELLOW}Documentation:${NC} https://akhshyganesh.github.io/aliasmate-v2/docs/"
+    
+    # After completing the installation
+    post_install
 }
 
 # Execute the main function
