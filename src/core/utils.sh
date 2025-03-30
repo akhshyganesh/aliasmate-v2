@@ -1,304 +1,437 @@
 #!/usr/bin/env bash
-# AliasMate v2 - Utility functions
+# AliasMate v2 - Core utilities
 
 # Check if a command exists
 command_exists() {
-    command -v "$1" &>/dev/null
-}
-
-# Prompt for confirmation
-confirm() {
-    local prompt="$1"
-    local default="${2:-n}"
-    
-    if [[ "$default" == "y" ]]; then
-        prompt="$prompt [Y/n] "
-    else
-        prompt="$prompt [y/N] "
-    fi
-    
-    read -p "$prompt" response
-    response=${response:-$default}
-    
-    if [[ "$response" =~ ^[Yy]$ ]]; then
-        return 0
-    else
-        return 1
-    fi
-}
-
-# Generate a unique ID
-generate_id() {
-    local prefix="${1:-cmd}"
-    echo "${prefix}_$(date +%s)_$(openssl rand -hex 4)"
+    command -v "$1" &> /dev/null
 }
 
 # Validate an alias name
 validate_alias() {
     local alias_name="$1"
     
+    # Check if alias is empty
     if [[ -z "$alias_name" ]]; then
         print_error "Alias name cannot be empty"
         return 1
     fi
     
-    if [[ "$alias_name" =~ [^a-zA-Z0-9_-] ]]; then
-        print_error "Alias name can only contain letters, numbers, underscore and hyphen"
+    # Check length
+    if [[ ${#alias_name} -gt 50 ]]; then
+        print_error "Alias name too long (max 50 characters)"
         return 1
     fi
     
-    if [[ "${#alias_name}" -gt 50 ]]; then
-        print_error "Alias name is too long (max 50 characters)"
+    # Check format (only allow letters, numbers, underscore and hyphen)
+    if ! [[ "$alias_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        print_error "Invalid alias name: $alias_name"
+        print_info "Alias names can only contain letters, numbers, underscore and hyphen"
         return 1
     fi
     
     return 0
 }
 
-# Check for updates
+# Generate a unique ID
+generate_id() {
+    local prefix="${1:-}"
+    local id
+    
+    if [[ -n "$prefix" ]]; then
+        id="${prefix}_$(date +%s%N | sha256sum | head -c 8)"
+    else
+        id="$(date +%s%N | sha256sum | head -c 16)"
+    fi
+    
+    echo "$id"
+}
+
+# Confirm action with user
+confirm() {
+    local prompt="$1"
+    local default="${2:-y}"
+    
+    local options
+    if [[ "$default" == "y" ]]; then
+        options="[Y/n]"
+    else
+        options="[y/N]"
+    fi
+    
+    local answer
+    read -p "$prompt $options " answer
+    
+    # Default when Enter is pressed without any input
+    if [[ -z "$answer" ]]; then
+        answer="$default"
+    fi
+    
+    # Convert to lowercase
+    answer=$(echo "$answer" | tr '[:upper:]' '[:lower:]')
+    
+    if [[ "$answer" == "y" || "$answer" == "yes" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# URL encode a string
+urlencode() {
+    local string="$1"
+    local length="${#string}"
+    local i c
+    
+    for (( i = 0; i < length; i++ )); do
+        c="${string:i:1}"
+        case "$c" in
+            [a-zA-Z0-9.~_-]) printf "%s" "$c" ;;
+            *) printf '%%%02X' "'$c" ;;
+        esac
+    done
+}
+
+# Parse command line arguments
+parse_args() {
+    local -n args=$1
+    local -n options=$2
+    shift 2
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --*)
+                local key="${1:2}"
+                if [[ "$2" == --* || -z "$2" ]]; then
+                    options["$key"]=true
+                else
+                    options["$key"]="$2"
+                    shift
+                fi
+                ;;
+            -*)
+                local key="${1:1}"
+                if [[ "$2" == -* || -z "$2" ]]; then
+                    options["$key"]=true
+                else
+                    options["$key"]="$2"
+                    shift
+                fi
+                ;;
+            *)
+                args+=("$1")
+                ;;
+        esac
+        shift
+    done
+}
+
+# Format JSON or YAML data for display
+format_data() {
+    local data="$1"
+    local format="${2:-json}"
+    
+    case "$format" in
+        json)
+            if command_exists jq; then
+                echo "$data" | jq .
+            else
+                echo "$data"
+            fi
+            ;;
+        yaml)
+            if command_exists yq; then
+                echo "$data" | yq eval -P
+            else
+                print_error "YAML formatting requires 'yq' tool. Please install it."
+                echo "$data"
+            fi
+            ;;
+        *)
+            echo "$data"
+            ;;
+    esac
+}
+
+# Format duration in seconds to human readable
+format_duration() {
+    local seconds="$1"
+    local days hours minutes
+    
+    # If seconds is less than 1, show milliseconds
+    if (( $(echo "$seconds < 1" | bc -l) )); then
+        echo "$(echo "$seconds * 1000" | bc | cut -d. -f1)ms"
+        return
+    fi
+    
+    days=$((seconds / 86400))
+    seconds=$((seconds % 86400))
+    hours=$((seconds / 3600))
+    seconds=$((seconds % 3600))
+    minutes=$((seconds / 60))
+    seconds=$((seconds % 60))
+    
+    local result=""
+    if [[ $days -gt 0 ]]; then
+        result+="$days days "
+    fi
+    if [[ $hours -gt 0 ]]; then
+        result+="$hours hours "
+    fi
+    if [[ $minutes -gt 0 ]]; then
+        result+="$minutes minutes "
+    fi
+    result+="$seconds seconds"
+    
+    echo "$result"
+}
+
+# Format timestamp to human readable date
+format_timestamp() {
+    local timestamp="$1"
+    local format="${2:-%Y-%m-%d %H:%M:%S}"
+    
+    # Check if we have a valid timestamp
+    if [[ -z "$timestamp" || "$timestamp" == "null" ]]; then
+        echo "Never"
+        return
+    fi
+    
+    # Try different date commands for compatibility
+    date -d "@$timestamp" +"$format" 2>/dev/null || 
+    date -r "$timestamp" +"$format" 2>/dev/null || 
+    echo "Unknown date format"
+}
+
+# Check for updates to AliasMate
 check_for_updates() {
-    # Skip if version check is disabled
+    # Only check if enabled
     if [[ "$VERSION_CHECK" != "true" ]]; then
         return 0
     fi
     
-    # Skip update check if we've checked recently
-    local cache_file="$HOME/.cache/aliasmate/update_check"
-    local cache_dir=$(dirname "$cache_file")
-    mkdir -p "$cache_dir"
-    
-    # Check if the cache file exists and is less than a day old
-    if [[ -f "$cache_file" ]] && (( $(date +%s) - $(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file") < 86400 )); then
-        # Use cached result
-        local cached_version=$(cat "$cache_file")
+    # Check if we've checked recently (once per day is enough)
+    local last_check_file="$HOME/.cache/aliasmate/last_update_check"
+    if [[ -f "$last_check_file" ]]; then
+        local last_check=$(cat "$last_check_file")
+        local now=$(date +%s)
+        local one_day=86400
         
-        # Compare with current version
-        if [[ "$cached_version" != "$VERSION" ]] && [[ "$cached_version" != "error" ]]; then
-            print_info "A new version is available: $cached_version (current: $VERSION)"
-            print_info "Run 'aliasmate --upgrade' to update"
+        if (( now - last_check < one_day )); then
+            # We checked recently, skip
+            return 0
         fi
-        
+    fi
+    
+    # Create cache directory if it doesn't exist
+    mkdir -p "$HOME/.cache/aliasmate"
+    
+    # Update the last check time
+    date +%s > "$last_check_file"
+    
+    # Try to fetch the latest version
+    local latest_version
+    
+    if command_exists curl; then
+        latest_version=$(curl -s https://api.github.com/repos/akhshyganesh/aliasmate-v2/releases/latest | 
+                        grep -o '"tag_name": "[^"]*"' | cut -d '"' -f 4 2>/dev/null)
+    elif command_exists wget; then
+        latest_version=$(wget -qO- https://api.github.com/repos/akhshyganesh/aliasmate-v2/releases/latest | 
+                        grep -o '"tag_name": "[^"]*"' | cut -d '"' -f 4 2>/dev/null)
+    else
+        # No tools to check updates
         return 0
     fi
     
-    # Check for a new version in the background
-    (
-        # Get the latest version from GitHub
-        if command_exists curl; then
-            latest_version=$(curl -s --max-time 3 "https://api.github.com/repos/akhshyganesh/aliasmate-v2/releases/latest" | 
-                             grep -o '"tag_name": *"[^"]*"' | 
-                             grep -o '[^"]*$' | 
-                             sed 's/^v//')
-        elif command_exists wget; then
-            latest_version=$(wget -qO- --timeout=3 "https://api.github.com/repos/akhshyganesh/aliasmate-v2/releases/latest" | 
-                             grep -o '"tag_name": *"[^"]*"' | 
-                             grep -o '[^"]*$' | 
-                             sed 's/^v//')
+    # Remove 'v' prefix if present for comparison
+    latest_version="${latest_version#v}"
+    current_version="${VERSION#v}"
+    
+    # Compare versions
+    if [[ -n "$latest_version" && "$latest_version" != "$current_version" ]]; then
+        if [[ "$USE_COLORS" == "true" ]]; then
+            echo -e "${YELLOW}A new version of AliasMate is available: $latest_version (current: $current_version)${NC}"
+            echo -e "${YELLOW}Run 'aliasmate --upgrade' to update${NC}"
         else
-            # No tools to check for updates
-            echo "error" > "$cache_file"
-            return 0
+            echo "A new version of AliasMate is available: $latest_version (current: $current_version)"
+            echo "Run 'aliasmate --upgrade' to update"
         fi
-        
-        # Cache the result
-        if [[ -n "$latest_version" ]] && [[ "$latest_version" != "null" ]]; then
-            echo "$latest_version" > "$cache_file"
-        else
-            echo "error" > "$cache_file"
-        fi
-    ) &
+    fi
+    
+    return 0
 }
 
-# Update AliasMate
+# Update aliasmate to the latest version
 update_aliasmate() {
     print_info "Checking for updates..."
     
-    # Download the installer script
-    local temp_dir=$(mktemp -d)
-    local installer_script="$temp_dir/install.sh"
-    
+    # Check if we can download the update script
     if command_exists curl; then
-        curl -sSL "https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scripts/install.sh" -o "$installer_script"
+        curl -sSL https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scripts/install.sh | bash -s -- --upgrade
     elif command_exists wget; then
-        wget -q "https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scripts/install.sh" -O "$installer_script"
+        wget -qO- https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scripts/install.sh | bash -s -- --upgrade
     else
-        print_error "Neither curl nor wget is available to download updates"
+        print_error "Update requires curl or wget to be installed"
         return 1
     fi
     
-    # Make the installer executable
-    chmod +x "$installer_script"
-    
-    # Run the installer
-    print_info "Running installer..."
-    bash "$installer_script"
-    
-    # Clean up
-    rm -rf "$temp_dir"
-    
-    print_info "Update complete!"
+    return 0
 }
 
-# Show a spinner for long-running commands
-spinner() {
-    local pid=$1
-    local delay=0.1
-    local spinstr='|/-\'
+# Parse YAML configuration file
+parse_yaml() {
+    local file="$1"
+    local prefix="${2:-}"
     
-    while ps -p $pid > /dev/null; do
-        local temp=${spinstr#?}
-        printf " [%c]  " "$spinstr"
-        local spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b\b\b\b\b\b"
-    done
-    printf "    \b\b\b\b"
-}
-
-# Format data as a table
-format_table() {
-    local header=("$@")
-    local separator="|"
-    local num_columns=${#header[@]}
-    local column_widths=()
+    if [[ ! -f "$file" ]]; then
+        return 1
+    fi
     
-    # Calculate column widths
-    for ((i=0; i<num_columns; i++)); do
-        column_widths+=("${#header[$i]}")
-    done
-    
-    # Read data and update column widths
-    local rows=()
-    while IFS= read -r line; do
-        rows+=("$line")
-        
-        # Split the line by separator
-        IFS="$separator" read -ra cells <<< "$line"
-        
-        # Update column widths
-        for ((i=0; i<num_columns && i<${#cells[@]}; i++)); do
-            if (( ${#cells[$i]} > ${column_widths[$i]} )); then
-                column_widths[$i]=${#cells[$i]}
-            fi
-        done
-    done
-    
-    # Print header
-    for ((i=0; i<num_columns; i++)); do
-        printf "%-$((${column_widths[$i]}+2))s" "${header[$i]}"
-        if (( i < num_columns - 1 )); then
-            printf "| "
+    # Remove comments and empty lines
+    sed -e 's/#.*$//' -e '/^[[:space:]]*$/d' "$file" |
+    # Extract key-value pairs
+    while read -r line; do
+        # Skip lines that don't look like key-value pairs
+        if ! [[ "$line" =~ ^[a-zA-Z0-9_]+:.* ]]; then
+            continue
         fi
-    done
-    echo
-    
-    # Print separator line
-    for ((i=0; i<num_columns; i++)); do
-        printf "%s" "$(printf '=%.0s' $(seq 1 $((${column_widths[$i]}+2))))"
-        if (( i < num_columns - 1 )); then
-            printf "| "
-        fi
-    done
-    echo
-    
-    # Print rows
-    for row in "${rows[@]}"; do
-        IFS="$separator" read -ra cells <<< "$row"
         
-        for ((i=0; i<num_columns && i<${#cells[@]}; i++)); do
-            printf "%-$((${column_widths[$i]}+2))s" "${cells[$i]}"
-            if (( i < num_columns - 1 )); then
-                printf "| "
-            fi
-        done
-        echo
+        # Extract key and value
+        local key=$(echo "$line" | cut -d: -f1 | sed -e 's/[[:space:]]*$//')
+        local value=$(echo "$line" | cut -d: -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        
+        # Handle quoted values
+        if [[ "$value" =~ ^\".*\"$ || "$value" =~ ^\'.*\'$ ]]; then
+            value="${value:1:${#value}-2}"
+        fi
+        
+        # Output variable assignment
+        echo "${prefix}${key}=\"${value}\""
     done
 }
 
-# Generate shell completion script
+# Generate shell completion scripts
 generate_completion() {
     local shell="$1"
     
     case "$shell" in
         bash)
             cat << 'EOF'
-# AliasMate v2 bash completion
+# AliasMate bash completion script
 
 _aliasmate_completion() {
-    local cur prev opts
-    COMPREPLY=()
-    cur="${COMP_WORDS[COMP_CWORD]}"
-    prev="${COMP_WORDS[COMP_CWORD-1]}"
-    
-    # Main commands
-    opts="save run edit ls list search stats rm remove categories export import config sync --help -h --version -v --tui --update --upgrade --completion"
-    
-    # Handle different completion contexts
+    local cur prev words cword
+    _init_completion || return
+
+    # Define commands and options
+    local commands="save run edit ls list search rm remove categories export import stats config sync batch --tui --help --version --upgrade"
+    local options="--category --format --sort --output --merge --multi --path --args --force --reset"
+
+    # Handle specific command options
     case "$prev" in
-        aliasmate)
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
+        save)
+            # Return available categories for save command
+            if [[ "$cur" == --* ]]; then
+                COMPREPLY=($(compgen -W "--multi --category" -- "$cur"))
+                return
+            fi
+            # After the alias name, no completion
+            local cmd_parts=${#words[@]}
+            if [[ $cmd_parts -gt 2 ]]; then
+                return
+            fi
             ;;
         run|edit|rm|remove)
-            # Complete with available aliases
-            local aliases=$(aliasmate ls --format=names 2>/dev/null)
-            COMPREPLY=( $(compgen -W "${aliases}" -- "${cur}") )
-            return 0
+            # Return available commands
+            if [[ "$cur" == --* ]]; then
+                COMPREPLY=($(compgen -W "--path --args --force" -- "$cur"))
+                return
+            fi
+            if [[ "$cur" == * ]]; then
+                local cmds=$(aliasmate ls --format names 2>/dev/null)
+                COMPREPLY=($(compgen -W "$cmds" -- "$cur"))
+                return
+            fi
+            ;;
+        categories)
+            # Subcommands for categories
+            if [[ "$cur" == * ]]; then
+                COMPREPLY=($(compgen -W "list add rm remove rename" -- "$cur"))
+                return
+            fi
+            ;;
+        search)
+            # Search options
+            if [[ "$cur" == --* ]]; then
+                COMPREPLY=($(compgen -W "--category --command --path --alias" -- "$cur"))
+                return
+            fi
             ;;
         --category)
-            # Complete with available categories
-            local categories=$(aliasmate categories --format=names 2>/dev/null)
-            COMPREPLY=( $(compgen -W "${categories}" -- "${cur}") )
-            return 0
+            # Return available categories
+            local cats=$(find "$HOME/.local/share/aliasmate/categories" -type f -exec basename {} \; 2>/dev/null)
+            COMPREPLY=($(compgen -W "$cats" -- "$cur"))
+            return
             ;;
-        --path)
-            # Complete with directories
-            COMPREPLY=( $(compgen -d -- "${cur}") )
-            return 0
+        --format)
+            # Return available formats
+            COMPREPLY=($(compgen -W "json yaml csv table names" -- "$cur"))
+            return
             ;;
-        --completion)
-            COMPREPLY=( $(compgen -W "bash zsh" -- "${cur}") )
-            return 0
+        --sort)
+            # Return available sort fields
+            COMPREPLY=($(compgen -W "name alias path usage runs last_run" -- "$cur"))
+            return
             ;;
-        save|ls|list|search|stats|categories|export|import|config|sync)
-            # Handle subcommands
-            local subopts=""
-            case "$prev" in
-                save)
-                    subopts="--multi --category"
-                    ;;
-                ls|list)
-                    subopts="--category --sort --format"
-                    ;;
-                search)
-                    subopts="--category --command --path"
-                    ;;
-                stats)
-                    subopts="--reset --export"
-                    ;;
-                categories)
-                    subopts="add rm list"
-                    ;;
-                export)
-                    subopts="--format"
-                    ;;
-                import)
-                    subopts="--merge"
-                    ;;
-                config)
-                    subopts="get set list reset"
-                    ;;
-                sync)
-                    subopts="setup push pull status"
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${subopts}" -- "${cur}") )
-            return 0
+        export|import)
+            # Return export/import options
+            if [[ "$cur" == --* ]]; then
+                COMPREPLY=($(compgen -W "--format --output --merge" -- "$cur"))
+                return
+            fi
+            ;;
+        ls|list)
+            # Return listing options
+            if [[ "$cur" == --* ]]; then
+                COMPREPLY=($(compgen -W "--category --format --sort" -- "$cur"))
+                return
+            fi
+            ;;
+        stats)
+            # Return stats options
+            if [[ "$cur" == --* ]]; then
+                COMPREPLY=($(compgen -W "--reset --export" -- "$cur"))
+                return
+            fi
+            ;;
+        config)
+            # Return config subcommands
+            if [[ "$cur" == * ]]; then
+                COMPREPLY=($(compgen -W "list get set reset" -- "$cur"))
+                return
+            fi
+            ;;
+        sync)
+            # Return sync subcommands
+            if [[ "$cur" == * ]]; then
+                COMPREPLY=($(compgen -W "status setup push pull" -- "$cur"))
+                return
+            fi
+            ;;
+        batch)
+            # Return batch subcommands
+            if [[ "$cur" == * ]]; then
+                COMPREPLY=($(compgen -W "import edit run" -- "$cur"))
+                return
+            fi
             ;;
     esac
-    
-    # Default to file completion
-    return 0
+
+    # Handle initial command completion
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "--help --version --tui --upgrade --completion" -- "$cur"))
+    else
+        COMPREPLY=($(compgen -W "$commands" -- "$cur"))
+    fi
 }
 
 complete -F _aliasmate_completion aliasmate
@@ -308,7 +441,7 @@ EOF
             cat << 'EOF'
 #compdef aliasmate
 
-_aliasmate() {
+_aliasmate_commands() {
     local -a commands
     commands=(
         'save:Save a command with an alias'
@@ -317,142 +450,194 @@ _aliasmate() {
         'ls:List all commands'
         'list:List all commands'
         'search:Search for commands'
-        'stats:Show command usage statistics'
         'rm:Remove a command'
         'remove:Remove a command'
         'categories:Manage categories'
         'export:Export commands'
         'import:Import commands'
+        'stats:Show command statistics'
         'config:Manage configuration'
-        'sync:Synchronize with cloud'
+        'sync:Synchronize commands'
+        'batch:Perform batch operations'
     )
+    _describe -t commands 'aliasmate commands' commands
+}
 
-    local -a options
-    options=(
-        '--help[Show help message]'
-        '-h[Show help message]'
-        '--version[Show version information]'
-        '-v[Show version information]'
-        '--tui[Launch the Text User Interface]'
-        '--update[Update AliasMate]'
-        '--upgrade[Update AliasMate]'
-        '--completion[Generate shell completion scripts]:shell:(bash zsh)'
-    )
+_aliasmate_saved_commands() {
+    local -a commands
+    local cmds=$(aliasmate ls --format names 2>/dev/null)
+    commands=(${(f)cmds})
+    _describe -t commands 'saved commands' commands
+}
+
+_aliasmate_categories() {
+    local -a categories
+    local cats=$(find "$HOME/.local/share/aliasmate/categories" -type f -exec basename {} \; 2>/dev/null)
+    categories=(${(f)cats})
+    _describe -t categories 'categories' categories
+}
+
+_aliasmate() {
+    local curcontext="$curcontext" state line
+    typeset -A opt_args
 
     _arguments -C \
-        "1: :{_describe 'command' commands}" \
-        "*::arg:->args" \
-        "${options[@]}"
+        '(-h --help)'{-h,--help}'[Show help information]' \
+        '(-v --version)'{-v,--version}'[Show version information]' \
+        '--tui[Launch the Text User Interface]' \
+        '--upgrade[Update AliasMate to the latest version]' \
+        '--completion[Generate shell completion]:shell:(bash zsh)' \
+        '*:: :->args'
 
     case $state in
         args)
-            case $line[1] in
+            case $words[1] in
                 save)
                     _arguments \
-                        '--multi[Create a multi-line command]' \
-                        '--category[Assign a category]:category:($(_aliasmate_categories))'
+                        '--multi[Edit as multi-line command]' \
+                        '--category[Specify category]:category:_aliasmate_categories' \
+                        '*:command args:'
                     ;;
-                run)
+                run|edit)
                     _arguments \
-                        '1:alias:($(_aliasmate_aliases))' \
-                        '--path[Run in a specific path]:directory:_directories' \
-                        '--args[Additional arguments]'
+                        ':command:_aliasmate_saved_commands' \
+                        '--path[Run in specified path]:path:_files -/' \
+                        '--args[Pass arguments to command]:args:'
                     ;;
-                edit)
+                rm|remove)
                     _arguments \
-                        '1:alias:($(_aliasmate_aliases))' \
-                        '--cmd[Edit only the command]' \
-                        '--path[Edit only the path]' \
-                        '--category[Edit the category]:category:($(_aliasmate_categories))'
+                        ':command:_aliasmate_saved_commands' \
+                        '--force[Remove without confirmation]'
                     ;;
                 ls|list)
                     _arguments \
-                        '--category[Filter by category]:category:($(_aliasmate_categories))' \
-                        '--sort[Sort results]:field:(name path usage)' \
-                        '--format[Output format]:format:(table json csv names)'
+                        '--category[Filter by category]:category:_aliasmate_categories' \
+                        '--format[Output format]:format:(table json csv names)' \
+                        '--sort[Sort by field]:field:(name alias path usage runs last_run)'
                     ;;
                 search)
                     _arguments \
-                        '1:term' \
-                        '--category[Filter by category]:category:($(_aliasmate_categories))' \
-                        '--command[Search in commands]' \
-                        '--path[Search in paths]'
+                        ':search term:' \
+                        '--category[Filter by category]:category:_aliasmate_categories' \
+                        '--command[Search in command content]' \
+                        '--path[Search in command paths]' \
+                        '--alias[Search in alias names]'
+                    ;;
+                categories)
+                    _arguments \
+                        ':action:(list add rm remove rename)' \
+                        '*::category args:'
+                    ;;
+                export)
+                    _arguments \
+                        '::command:_aliasmate_saved_commands' \
+                        '--format[Export format]:format:(json yaml csv)' \
+                        '--output[Output file]:file:_files'
+                    ;;
+                import)
+                    _arguments \
+                        ':file:_files' \
+                        '--merge[Merge with existing commands]'
                     ;;
                 stats)
                     _arguments \
                         '--reset[Reset statistics]' \
                         '--export[Export statistics]:file:_files'
                     ;;
-                rm|remove)
-                    _arguments \
-                        '1:alias:($(_aliasmate_aliases))'
-                    ;;
-                categories)
-                    local -a subcmds
-                    subcmds=(
-                        'add:Add a new category'
-                        'rm:Remove a category'
-                        'list:List categories'
-                    )
-                    _arguments \
-                        "1: :{_describe 'subcommand' subcmds}"
-                    ;;
-                export)
-                    _arguments \
-                        '::alias:($(_aliasmate_aliases))' \
-                        '--format[Export format]:format:(json yaml csv)'
-                    ;;
-                import)
-                    _arguments \
-                        '1:file:_files' \
-                        '--merge[Merge with existing commands]'
-                    ;;
                 config)
-                    local -a subcmds
-                    subcmds=(
-                        'get:Get a configuration value'
-                        'set:Set a configuration value'
-                        'list:List all configuration'
-                        'reset:Reset configuration to defaults'
-                    )
                     _arguments \
-                        "1: :{_describe 'subcommand' subcmds}"
+                        ':action:(list get set reset)' \
+                        '*::config args:'
                     ;;
                 sync)
-                    local -a subcmds
-                    subcmds=(
-                        'setup:Configure cloud synchronization'
-                        'push:Push to cloud'
-                        'pull:Pull from cloud'
-                        'status:Check sync status'
-                    )
                     _arguments \
-                        "1: :{_describe 'subcommand' subcmds}"
+                        ':action:(status setup push pull)'
+                    ;;
+                batch)
+                    _arguments \
+                        ':action:(import edit run)'
+                    ;;
+                *)
+                    _aliasmate_commands
                     ;;
             esac
             ;;
     esac
 }
 
-_aliasmate_aliases() {
-    local -a aliases
-    aliases=(${(f)"$(aliasmate ls --format=names 2>/dev/null)"})
-    _values 'aliases' $aliases
-}
-
-_aliasmate_categories() {
-    local -a categories
-    categories=(${(f)"$(aliasmate categories --format=names 2>/dev/null)"})
-    _values 'categories' $categories
-}
-
-compdef _aliasmate aliasmate
+_aliasmate "$@"
 EOF
             ;;
         *)
-            print_error "Unsupported shell: $shell"
+            print_error "Unsupported shell type: $shell"
             print_info "Supported shells: bash, zsh"
             return 1
             ;;
     esac
+    
+    return 0
+}
+
+# Function to get command details for display
+get_command_details() {
+    local alias_name="$1"
+    local command_file="$COMMAND_STORE/$alias_name.json"
+    
+    if [[ ! -f "$command_file" ]]; then
+        print_error "Command not found: $alias_name"
+        return 1
+    fi
+    
+    # Get command details
+    local command=$(jq -r '.command' "$command_file")
+    local path=$(jq -r '.path' "$command_file")
+    local category=$(jq -r '.category' "$command_file")
+    local runs=$(jq -r '.runs' "$command_file")
+    local created=$(jq -r '.created' "$command_file")
+    local modified=$(jq -r '.modified' "$command_file")
+    local last_run=$(jq -r '.last_run' "$command_file")
+    local last_exit_code=$(jq -r '.last_exit_code' "$command_file")
+    local last_duration=$(jq -r '.last_duration' "$command_file")
+    
+    # Format timestamps
+    local created_fmt=$(format_timestamp "$created")
+    local modified_fmt=$(format_timestamp "$modified")
+    local last_run_fmt=$(format_timestamp "$last_run")
+    
+    # Format success/failure
+    local status="Unknown"
+    if [[ "$last_exit_code" == "null" ]]; then
+        status="Never run"
+    elif [[ "$last_exit_code" == "0" ]]; then
+        status="Success"
+    else
+        status="Failed (exit code: $last_exit_code)"
+    fi
+    
+    # Format duration
+    local duration_fmt="N/A"
+    if [[ "$last_duration" != "null" && -n "$last_duration" ]]; then
+        duration_fmt="$(printf "%.2f" "$last_duration")s"
+    fi
+    
+    # Print details
+    echo "===== Command Details: $alias_name ====="
+    echo
+    echo "Command:"
+    echo "  $command"
+    echo
+    echo "Category: $category"
+    echo "Default Path: $path"
+    echo
+    echo "Stats:"
+    echo "  Runs: $runs"
+    echo "  Last Run: $last_run_fmt"
+    echo "  Last Status: $status"
+    echo "  Last Duration: $duration_fmt"
+    echo
+    echo "Metadata:"
+    echo "  Created: $created_fmt"
+    echo "  Modified: $modified_fmt"
+    
+    return 0
 }

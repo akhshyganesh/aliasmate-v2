@@ -6,12 +6,25 @@ on:
       - 'v*'
 
 jobs:
-  release:
+  build:
+    name: Build release packages
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v3
-      - name: Build package
-        run: ./scripts/build.sh
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck jq ruby ruby-dev rubygems build-essential rpm
+          sudo gem install --no-document fpm
+      
+      - name: Build packages
+        run: |
+          chmod +x ./scripts/build.sh
+          ./scripts/build.sh
+      
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
@@ -20,15 +33,47 @@ jobs:
         with:
           tag_name: ${{ github.ref }}
           release_name: AliasMate ${{ github.ref }}
-          body_path: CHANGELOG.md
           draft: false
           prerelease: false
-      - name: Upload Release Assets
+          body: |
+            Please see the [CHANGELOG](https://github.com/akhshyganesh/aliasmate-v2/blob/main/CHANGELOG.md) for details.
+            
+            ## Installation
+            
+            ```bash
+            # Using curl
+            curl -sSL https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scripts/install.sh | bash
+            
+            # Using wget
+            wget -qO- https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scripts/install.sh | bash
+            ```
+      
+      - name: Upload DEB package
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./dist/aliasmate_${{ github.ref_name }}_amd64.deb
-          asset_name: aliasmate_${{ github.ref_name }}_amd64.deb
+          asset_path: ./dist/aliasmate_${{ github.ref_name }}.deb
+          asset_name: aliasmate_${{ github.ref_name }}.deb
           asset_content_type: application/vnd.debian.binary-package
+      
+      - name: Upload RPM package
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/aliasmate-${{ github.ref_name }}.rpm
+          asset_name: aliasmate-${{ github.ref_name }}.rpm
+          asset_content_type: application/x-rpm
+      
+      - name: Upload tarball
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./dist/aliasmate-${{ github.ref_name }}.tar.gz
+          asset_name: aliasmate-${{ github.ref_name }}.tar.gz
+          asset_content_type: application/gzip
