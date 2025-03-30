@@ -14,10 +14,10 @@ NC='\033[0m' # No Color
 
 # Define variables - use the same paths as standard installation
 INSTALL_DIR="/usr/local/bin"
+SCRIPTS_DIR="/usr/local/share/aliasmate"  # Separate directory for scripts
 CONFIG_DIR="/etc/aliasmate"
 USER_CONFIG_DIR="/root/.config/aliasmate"
 DATA_DIR="/root/.local/share/aliasmate"
-TEMP_DIR=$(mktemp -d)
 
 echo -e "${BLUE}┌────────────────────────────────────────┐${NC}"
 echo -e "${BLUE}│  AliasMate v2 Installation (Docker)    │${NC}"
@@ -29,6 +29,7 @@ install_from_source() {
     
     # Create necessary directories
     mkdir -p "$INSTALL_DIR"
+    mkdir -p "$SCRIPTS_DIR"
     mkdir -p "$CONFIG_DIR"
     mkdir -p "$USER_CONFIG_DIR"
     mkdir -p "$DATA_DIR/categories"
@@ -38,39 +39,31 @@ install_from_source() {
     echo -e "${CYAN}Making scripts executable...${NC}"
     find "./src" -type f -name "*.sh" -exec chmod +x {} \;
     
-    # Create the main executable
+    # Create the main executable as a wrapper
     echo -e "${CYAN}Creating main executable...${NC}"
-    cat > "$INSTALL_DIR/aliasmate" << 'EOF'
+    cat > "$INSTALL_DIR/aliasmate" << EOF
 #!/usr/bin/env bash
 # AliasMate v2 - Main entry point wrapper
 
-# Find the real installation directory
-if [[ -L "$0" ]]; then
-    # Follow symlink to get the real path
-    REAL_PATH=$(readlink -f "$0")
-    INSTALL_DIR=$(dirname "$REAL_PATH")
-else
-    INSTALL_DIR=$(dirname "$0")
-fi
+# Set scripts directory
+SCRIPTS_DIR="$SCRIPTS_DIR"
 
-# Source the main script
-if [[ -f "$INSTALL_DIR/main.sh" ]]; then
-    source "$INSTALL_DIR/main.sh" "$@"
-else
-    echo "Error: AliasMate installation is broken - main.sh not found"
-    echo "Expected location: $INSTALL_DIR/main.sh"
-    echo "Try reinstalling AliasMate."
-    exit 1
-fi
+# Execute main script from scripts directory
+cd "\$SCRIPTS_DIR"
+exec bash "\$SCRIPTS_DIR/main.sh" "\$@"
 EOF
     chmod +x "$INSTALL_DIR/aliasmate"
     
-    # Copy source files
+    # Copy source files to scripts directory
     echo -e "${CYAN}Copying source files...${NC}"
-    cp -r ./src/* "$INSTALL_DIR/"
+    cp -r ./src/* "$SCRIPTS_DIR/"
     
     # Ensure all scripts are executable
-    find "$INSTALL_DIR" -type f -name "*.sh" -exec chmod +x {} \;
+    find "$SCRIPTS_DIR" -type f -name "*.sh" -exec chmod +x {} \;
+    
+    # Fix main.sh to use correct paths
+    echo -e "${CYAN}Adjusting script paths...${NC}"
+    sed -i "s|SCRIPT_DIR=\"\$(cd \"\$(dirname \"\${BASH_SOURCE\[0\]}\")\" && pwd)\"|SCRIPT_DIR=\"$SCRIPTS_DIR\"|g" "$SCRIPTS_DIR/main.sh"
     
     # Create basic config
     echo -e "${CYAN}Creating configuration...${NC}"
@@ -90,14 +83,15 @@ EOF
     fi
     ln -sf "$INSTALL_DIR/aliasmate" /usr/bin/aliasmate
     
-    # Add shell completion for bash
-    echo -e "${CYAN}Setting up shell completion...${NC}"
-    if ! grep -q "aliasmate completion" "/root/.bashrc"; then
-        echo -e "\n# AliasMate shell completion" >> "/root/.bashrc"
-        echo "if [ -x /usr/bin/aliasmate ]; then" >> "/root/.bashrc"
-        echo "    source <(aliasmate completion bash 2>/dev/null || true)" >> "/root/.bashrc"
-        echo "fi" >> "/root/.bashrc"
+    # Add alias for 'am' command
+    echo -e "${CYAN}Creating 'am' alias...${NC}"
+    if ! grep -q "alias am=" "/root/.bashrc"; then
+        echo -e "\n# AliasMate shortcut alias" >> "/root/.bashrc"
+        echo "alias am='aliasmate'" >> "/root/.bashrc"
     fi
+    
+    # Source the .bashrc to enable aliases immediately 
+    echo -e "source ~/.bashrc" >> "/root/.bash_profile"
     
     echo -e "${GREEN}Installation complete!${NC}"
 }
@@ -115,12 +109,21 @@ verify_installation() {
     fi
     
     # Check if source files are copied
-    if [ -f "$INSTALL_DIR/main.sh" ]; then
+    if [ -f "$SCRIPTS_DIR/main.sh" ]; then
         echo -e "${GREEN}✓ Main script found${NC}"
     else
         echo -e "${RED}✗ Main script not found${NC}"
         return 1
     fi
+    
+    # Check key files
+    for file in utils.sh config.sh commands.sh ui_components.sh; do
+        if [ -f "$SCRIPTS_DIR/$file" ] || [ -f "$SCRIPTS_DIR/core/$file" ]; then
+            echo -e "${GREEN}✓ Found $file${NC}"
+        else
+            echo -e "${RED}✗ Missing $file${NC}"
+        fi
+    done
     
     # Check if config exists
     if [ -f "$USER_CONFIG_DIR/config.yaml" ]; then
@@ -151,14 +154,30 @@ main() {
         exit 1
     fi
     
+    # Print debug info about the source files
+    echo -e "${CYAN}Available source files:${NC}"
+    find ./src -type f -name "*.sh" | sort
+    
     install_from_source
     verify_installation
     
-    echo -e "\n${GREEN}┌────────────────────────────────────────┐${NC}"
-    echo -e "${GREEN}│  AliasMate installed successfully       │${NC}"
-    echo -e "${GREEN}└────────────────────────────────────────┘${NC}"
-    echo -e "${YELLOW}To get started, run:${NC} aliasmate --help"
-    echo -e "${YELLOW}Or launch the TUI:${NC} aliasmate --tui"
+    # Create a simple test script
+    echo -e "${CYAN}Creating test script...${NC}"
+    cat > "$INSTALL_DIR/test-aliasmate" << EOF
+#!/bin/bash
+echo "Testing aliasmate command..."
+aliasmate --version
+EOF
+    chmod +x "$INSTALL_DIR/test-aliasmate"
+    
+    # Provide clear instructions
+    echo -e "\n${GREEN}AliasMate is ready for testing!${NC}"
+    echo -e "${YELLOW}First, reload your shell environment:${NC}"
+    echo -e "  source ~/.bashrc"
+    echo -e "${YELLOW}Then try these commands:${NC}"
+    echo -e "  aliasmate --help"
+    echo -e "  am --version"
+    echo -e "  test-aliasmate"
 }
 
 # Run main function

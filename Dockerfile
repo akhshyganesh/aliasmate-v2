@@ -1,6 +1,6 @@
 FROM debian:bullseye-slim
 
-# Install minimal dependencies
+# Install dependencies
 RUN apt-get update && apt-get install -y \
     curl \
     bash \
@@ -10,43 +10,39 @@ RUN apt-get update && apt-get install -y \
     git \
     vim \
     findutils \
+    sed \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Debug info - list files before installation
-RUN echo "Listing repository files:" && \
-    find . -type f -name "*.sh" | sort || echo "No files found yet"
-
 # Copy repository contents
 COPY . /app
 
-# Debug files in src directory
-RUN echo "Files in src directory:" && \
-    find ./src -type f -name "*.sh" | sort || echo "No src files found"
-
-# Make all scripts executable first
+# Make all scripts executable
 RUN find . -type f -name "*.sh" -exec chmod +x {} \;
 
 # Run the docker installation script
 RUN chmod +x /app/scripts/docker_install.sh && \
-    /app/scripts/docker_install.sh || \
-    (echo "Installation failed. Debugging info:" && \
-     find /usr/local/bin -type f -name "*.sh" | sort && \
-     exit 1)
+    /app/scripts/docker_install.sh
 
-# Add welcome message
-RUN echo "echo ''" >> /root/.bashrc
-RUN echo "echo '┌──────────────────────────────────────┐'" >> /root/.bashrc
-RUN echo "echo '│    AliasMate Test Environment        │'" >> /root/.bashrc
-RUN echo "echo '└──────────────────────────────────────┘'" >> /root/.bashrc
-RUN echo "echo ''" >> /root/.bashrc
-RUN echo "echo 'Commands to try:'" >> /root/.bashrc
-RUN echo "echo '  • aliasmate --help     # Show help'" >> /root/.bashrc
-RUN echo "echo '  • aliasmate --tui      # Launch TUI'" >> /root/.bashrc
-RUN echo "echo '  • am                   # Short alias for aliasmate'" >> /root/.bashrc
-RUN echo "echo '  • test-aliasmate       # Test if aliasmate works'" >> /root/.bashrc
-RUN echo "echo ''" >> /root/.bashrc
+# Add better welcome message with clear instructions
+RUN echo "# AliasMate welcome message" > /root/.welcome.sh && \
+    echo 'echo ""' >> /root/.welcome.sh && \
+    echo 'echo -e "┌──────────────────────────────────────┐"' >> /root/.welcome.sh && \
+    echo 'echo -e "│    AliasMate Test Environment        │"' >> /root/.welcome.sh && \
+    echo 'echo -e "└──────────────────────────────────────┘"' >> /root/.welcome.sh && \
+    echo 'echo ""' >> /root/.welcome.sh && \
+    echo 'echo -e "Commands to try:"' >> /root/.welcome.sh && \
+    echo 'echo -e "  • aliasmate --help     # Show help"' >> /root/.welcome.sh && \
+    echo 'echo -e "  • aliasmate --tui      # Launch TUI"' >> /root/.welcome.sh && \
+    echo 'echo -e "  • am --version         # Show version (shortcut alias)"' >> /root/.welcome.sh && \
+    echo 'echo -e "  • test-aliasmate       # Run test script"' >> /root/.welcome.sh && \
+    echo 'echo ""' >> /root/.welcome.sh && \
+    chmod +x /root/.welcome.sh && \
+    echo "source /root/.welcome.sh" >> /root/.bashrc
 
-# Use bash as entrypoint
-ENTRYPOINT ["/bin/bash"]
+# Set bash as default shell and make it source .bashrc
+RUN echo '[ -f ~/.bashrc ] && source ~/.bashrc' > /root/.bash_profile
+
+# Use bash login shell as entrypoint to ensure .bashrc is sourced
+ENTRYPOINT ["/bin/bash", "-l"]
