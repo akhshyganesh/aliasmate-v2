@@ -1,203 +1,63 @@
-# AliasMate v2
+# AliasMate
 
-![GitHub release](https://img.shields.io/github/v/release/akhshyganesh/aliasmate-v2)
-![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
-![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)
-
-**AliasMate is a powerful command management tool that helps you store, organize, and execute your most frequently used shell commands with ease.**
-
-<p align="center">
-  <img src="docs/images/aliasmate-demo.gif" alt="AliasMate Demo" width="80%">
-</p>
-
-## Why AliasMate?
-
-- **Never forget complex commands** - Store commands with meaningful aliases
-- **Run in the right directory** - Commands remember their execution paths
-- **Organize by project** - Group commands using categories
-- **Track command usage** - See statistics about your most used commands
-- **Share with colleagues** - Import/export command libraries
-
-## Features
-
-- 📋 **Command Storage** - Save and recall commands with descriptive names
-- 📁 **Path Tracking** - Commands remember where they should be executed
-- 🗂️ **Categories** - Organize commands by projects or contexts
-- 👨‍💻 **Interactive TUI** - User-friendly terminal interface
-- 🔍 **Advanced Search** - Find commands by name, content, or path
-- 📊 **Command Statistics** - Track usage and success rates
-- 📜 **Multi-line Commands** - Support for complex scripts
-- 📤 **Import/Export** - Share your command libraries
-- 🔄 **Cloud Sync** - Synchronize commands across machines via GitHub/GitLab
-- 🚀 **Performance Optimization** - Efficiently handles large command libraries
+AliasMate is a command-line tool to help you manage your shell aliases efficiently.
 
 ## Installation
 
-### Quick Installation
-
 ```bash
-# Using curl
-curl -sSL https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scripts/install.sh | bash
+# Install globally
+npm install -g aliasmate
 
-# Using wget
-wget -qO- https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scripts/install.sh | bash
+# Or, install from this directory
+npm install -g .
 ```
 
-### Docker/Container Installation
+## Usage
 
-For Docker containers or environments where the standard installation doesn't work:
-
-```bash
-# Clone the repository
-git clone https://github.com/akhshyganesh/aliasmate-v2.git
-cd aliasmate-v2
-
-# Make the Docker install script executable
-chmod +x scripts/docker_install.sh
-
-# Run the Docker-specific installation script (no build dependencies required)
-./scripts/docker_install.sh
-```
-
-If you're in a minimal container and don't have git:
+AliasMate can be used with either `aliasmate` or the shorter `am` command:
 
 ```bash
-# Download just the necessary scripts
-mkdir -p aliasmate-v2/scripts
-wget -O aliasmate-v2/scripts/docker_install.sh https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scripts/docker_install.sh
-chmod +x aliasmate-v2/scripts/docker_install.sh
+# Add a new alias
+aliasmate add
 
-# Run the installer (will download the rest of the code)
-cd aliasmate-v2
-./scripts/docker_install.sh
+# List all aliases
+aliasmate list
+# or
+am list
+
+# Find specific aliases
+aliasmate find
+
+# Remove an alias
+aliasmate remove
+
+# Update an existing alias
+aliasmate update
+
+# Export aliases to a file
+aliasmate export
+
+# Import aliases from a file
+aliasmate import
+
+# Apply aliases to your shell configuration
+aliasmate apply
+
+# Run a command stored as an alias
+aliasmate run [alias-name]
 ```
 
-### Manual Installation
+## Features
 
-```bash
-# Clone the repository
-git clone https://github.com/akhshyganesh/aliasmate-v2.git
-cd aliasmate-v2
-
-# Make all shell scripts executable
-chmod +x scripts/make_executable.sh
-./scripts/make_executable.sh
-
-# Build and install
-./scripts/build.sh
-sudo ./scripts/install.sh
-```
-
-### Testing with Docker
-
-If you want to test AliasMate in Docker without installing it on your host system:
-
-```bash
-# Build a test Docker image
-docker build -t aliasmate-test .
-
-# Run the container
-docker run -it aliasmate-test
-
-# Inside the container, you can test AliasMate
-aliasmate --help
-aliasmate --tui
-```
-
-This is useful for testing features or for trying AliasMate before installing it on your system.
-
-## Quick Start
-
-```bash
-# Launch the interactive tutorial to learn basics
-aliasmate tutorial
-
-# Launch the TUI (recommended for beginners)
-aliasmate --tui
-
-# Save a command with an alias
-aliasmate save deploy "kubectl apply -f deployment.yaml"
-
-# Run the command
-aliasmate run deploy
-
-# Save a command with a category
-aliasmate save build-app "npm run build" --category myproject
-
-# Add a multi-line command
-aliasmate save backup --multi
-
-# List all commands
-aliasmate ls
-
-# Search commands
-aliasmate search kubernetes
-```
-
-## Documentation
-
-For detailed documentation and guides:
-
-- Run `aliasmate tutorial` for an interactive onboarding experience
-- Check out [Onboarding Guide](docs/ONBOARDING.md) for a step-by-step getting started guide
-- Read the [User Manual](docs/USER_MANUAL.md) for comprehensive documentation
-- Browse the [FAQ](docs/FAQ.md) for common questions and answers
-
-### Core Commands
-
-- `aliasmate save <alias> <command>` - Save a command with an alias
-- `aliasmate run <alias>` - Run a saved command
-- `aliasmate edit <alias>` - Edit a command
-- `aliasmate ls` - List all commands
-- `aliasmate search <term>` - Search for commands
-- `aliasmate rm <alias>` - Remove a command
-- `aliasmate --tui` - Open the text user interface
-
-## Configuration
-
-AliasMate can be configured using:
-
-```bash
-aliasmate config set <key> <value>
-```
-
-Common configuration options:
-- `EDITOR` - Default editor for multi-line commands (default: nano)
-- `COMMAND_STORE` - Custom location for storing aliases
-- `THEME` - UI theme (default, dark, light, minimal)
-- `DEFAULT_UI` - Default interface mode (cli, tui)
-
-## Cloud Synchronization
-
-Synchronize your commands across multiple machines:
-
-```bash
-# Setup sync with GitHub
-aliasmate sync setup --provider github
-
-# Push your commands to the cloud
-aliasmate sync push
-
-# Pull commands from the cloud
-aliasmate sync pull
-```
-
-## Tab Completion
-
-Generate and install shell completion:
-
-```bash
-# For Bash
-echo 'source <(aliasmate completion bash)' >> ~/.bashrc
-
-# For Zsh
-echo 'source <(aliasmate completion zsh)' >> ~/.zshrc
-```
-
-## Contributing
-
-Contributions are welcome! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+- Add, update, and remove aliases
+- Create and run multi-line command aliases
+- List all aliases with descriptions and tags
+- Find aliases by name, command, or tags
+- Export aliases to share across machines
+- Import aliases from files
+- Apply aliases to your shell configuration
+- Run commands directly from saved aliases
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT
