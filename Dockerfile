@@ -1,48 +1,28 @@
-FROM debian:bullseye-slim
+# AliasMate v2 - Test Environment Dockerfile
+FROM ubuntu:22.04
 
 # Install dependencies
 RUN apt-get update && apt-get install -y \
-    curl \
     bash \
+    curl \
     jq \
-    dialog \
-    nano \
+    python3 \
+    python3-pip \
     git \
-    vim \
-    findutils \
-    sed \
+    shellcheck \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Python dependencies
+RUN pip3 install pyyaml
+
+# Set working directory
 WORKDIR /app
 
-# Copy repository contents
-COPY . /app
+# Copy project files
+COPY . .
 
-# Make all scripts executable
-RUN find . -type f -name "*.sh" -exec chmod +x {} \;
+# Environment variables
+ENV ALIASMATE_TEST_MODE=true
 
-# Run the docker installation script
-RUN chmod +x /app/scripts/docker_install.sh && \
-    /app/scripts/docker_install.sh
-
-# Add better welcome message with clear instructions
-RUN echo "# AliasMate welcome message" > /root/.welcome.sh && \
-    echo 'echo ""' >> /root/.welcome.sh && \
-    echo 'echo -e "┌──────────────────────────────────────┐"' >> /root/.welcome.sh && \
-    echo 'echo -e "│    AliasMate Test Environment        │"' >> /root/.welcome.sh && \
-    echo 'echo -e "└──────────────────────────────────────┘"' >> /root/.welcome.sh && \
-    echo 'echo ""' >> /root/.welcome.sh && \
-    echo 'echo -e "Commands to try:"' >> /root/.welcome.sh && \
-    echo 'echo -e "  • aliasmate --help     # Show help"' >> /root/.welcome.sh && \
-    echo 'echo -e "  • aliasmate --tui      # Launch TUI"' >> /root/.welcome.sh && \
-    echo 'echo -e "  • am --version         # Show version (shortcut alias)"' >> /root/.welcome.sh && \
-    echo 'echo -e "  • test-aliasmate       # Run test script"' >> /root/.welcome.sh && \
-    echo 'echo ""' >> /root/.welcome.sh && \
-    chmod +x /root/.welcome.sh && \
-    echo "source /root/.welcome.sh" >> /root/.bashrc
-
-# Set bash as default shell and make it source .bashrc
-RUN echo '[ -f ~/.bashrc ] && source ~/.bashrc' > /root/.bash_profile
-
-# Use bash login shell as entrypoint to ensure .bashrc is sourced
-ENTRYPOINT ["/bin/bash", "-l"]
+# Entrypoint
+ENTRYPOINT ["/bin/bash"]

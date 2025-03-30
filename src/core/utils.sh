@@ -202,47 +202,38 @@ format_timestamp() {
     echo "Unknown date format"
 }
 
-# Check for updates to AliasMate
-check_for_updates() {
-    # Only check if enabled
+# Check for updates to aliasmate
+check_update() {
+    # Skip update check if disabled
     if [[ "$VERSION_CHECK" != "true" ]]; then
         return 0
     fi
     
-    # Check if we've checked recently (once per day is enough)
-    local last_check_file="$HOME/.cache/aliasmate/last_update_check"
-    if [[ -f "$last_check_file" ]]; then
-        local last_check=$(cat "$last_check_file")
-        local now=$(date +%s)
-        local one_day=86400
+    # Don't check for updates if we've already checked recently
+    local update_check_file="/tmp/aliasmate_update_check"
+    if [[ -f "$update_check_file" ]]; then
+        local check_time=$(cat "$update_check_file")
+        local current_time=$(date +%s)
+        local diff=$((current_time - check_time))
         
-        if (( now - last_check < one_day )); then
-            # We checked recently, skip
+        # Only check once per day (86400 seconds)
+        if [[ $diff -lt 86400 ]]; then
             return 0
         fi
     fi
     
-    # Create cache directory if it doesn't exist
-    mkdir -p "$HOME/.cache/aliasmate"
+    # Log the update check time
+    date +%s > "$update_check_file"
     
-    # Update the last check time
-    date +%s > "$last_check_file"
-    
-    # Try to fetch the latest version
-    local latest_version
-    
+    # Fetch the latest version
+    local latest_version=""
     if command_exists curl; then
-        latest_version=$(curl -s https://api.github.com/repos/akhshyganesh/aliasmate-v2/releases/latest | 
-                        grep -o '"tag_name": "[^"]*"' | cut -d '"' -f 4 2>/dev/null)
+        latest_version=$(curl -s https://api.github.com/repos/akhshyganesh/aliasmate-v2/releases/latest | grep -o '"tag_name": "[^"]*' | grep -o '[^"]*$' 2>/dev/null)
     elif command_exists wget; then
-        latest_version=$(wget -qO- https://api.github.com/repos/akhshyganesh/aliasmate-v2/releases/latest | 
-                        grep -o '"tag_name": "[^"]*"' | cut -d '"' -f 4 2>/dev/null)
-    else
-        # No tools to check updates
-        return 0
+        latest_version=$(wget -qO- https://api.github.com/repos/akhshyganesh/aliasmate-v2/releases/latest | grep -o '"tag_name": "[^"]*' | grep -o '[^"]*$' 2>/dev/null)
     fi
     
-    # Remove 'v' prefix if present for comparison
+    # Strip 'v' prefix if present
     latest_version="${latest_version#v}"
     current_version="${VERSION#v}"
     
@@ -277,7 +268,7 @@ update_aliasmate() {
     return 0
 }
 
-# Parse YAML configuration file
+# Parse YAML configuration file - improved version
 parse_yaml() {
     local file="$1"
     local prefix="${2:-}"
@@ -300,13 +291,21 @@ parse_yaml() {
         local value=$(echo "$line" | cut -d: -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
         
         # Handle quoted values
-        if [[ "$value" =~ ^\".*\"$ || "$value" =~ ^\'.*\'$ ]]; then
-            value="${value:1:${#value}-2}"
+        if [[ "$value" =~ ^\".*\"$ ]]; then
+            value="${value#\"}"
+            value="${value%\"}"
+        elif [[ "$value" =~ ^\'.*\'$ ]]; then
+            value="${value#\'}"
+            value="${value%\'}"
         fi
         
-        # Output variable assignment
-        echo "${prefix}${key}=\"${value}\""
+        # Set the value
+        if [[ -n "$key" && -n "$value" ]]; then
+            eval "$prefix$key='$value'"
+        fi
     done
+    
+    return 0
 }
 
 # Generate shell completion scripts

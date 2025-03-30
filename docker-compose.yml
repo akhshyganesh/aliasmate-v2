@@ -1,0 +1,12 @@
+version: '3'
+
+services:
+  aliasmate-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    environment:
+      - ALIASMATE_TEST_MODE=true
+    command: /bin/bash -c "cd /app && ./scripts/install.sh && bash"

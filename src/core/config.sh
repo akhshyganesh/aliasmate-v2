@@ -39,29 +39,69 @@ load_config() {
         parse_config_file "$USER_CONFIG_FILE"
     fi
     
-    # Ensure the command store directory exists
-    mkdir -p "$COMMAND_STORE"
-    mkdir -p "$COMMAND_STORE/categories"
-    mkdir -p "$COMMAND_STORE/stats"
+    # Make sure the command store directory exists
+    if [[ ! -d "$COMMAND_STORE" ]]; then
+        mkdir -p "$COMMAND_STORE"
+        mkdir -p "$COMMAND_STORE/categories"
+        mkdir -p "$COMMAND_STORE/stats"
+    fi
+    
+    # Export for child processes
+    export COMMAND_STORE
+    export LOG_FILE
+    export LOG_LEVEL
+    export VERSION_CHECK
+    export EDITOR
+    export DEFAULT_UI
+    export THEME
+    export ENABLE_STATS
+    export SYNC_ENABLED
+    export SYNC_PROVIDER
+    export SYNC_INTERVAL
 }
 
-# Parse a YAML-like config file
+# Function to parse a YAML config file
 parse_config_file() {
     local file="$1"
     
-    while IFS=': ' read -r key value; do
-        # Skip comments and empty lines
-        if [[ -n "$key" && ! "$key" =~ ^[[:space:]]*# && -n "$value" ]]; then
-            # Remove leading/trailing whitespace
-            key=$(echo "$key" | xargs)
-            value=$(echo "$value" | xargs)
-            
-            # Only set if value is not empty
-            if [[ -n "$value" ]]; then
+    # If jq is not available, use a basic parser
+    if ! command -v jq &> /dev/null; then
+        parse_yaml "$file"
+        return
+    fi
+    
+    # Use a more robust parsing method with jq if available
+    # Convert YAML to JSON and then parse it
+    if command -v python3 &> /dev/null && python3 -c "import yaml" &> /dev/null; then
+        python3 -c "
+import yaml, json, sys
+try:
+    with open('$file', 'r') as f:
+        data = yaml.safe_load(f)
+    if data:
+        print(json.dumps(data))
+except Exception as e:
+    sys.stderr.write(f'Error parsing config: {e}\\n')
+    sys.exit(1)
+" 2>/dev/null | jq -r 'to_entries[] | "\(.key)=\(.value)"' 2>/dev/null | while read -r line; do
+            if [[ -n "$line" ]]; then
+                # Skip comment lines
+                if [[ "$line" == \#* ]]; then
+                    continue
+                fi
+                
+                # Extract key and value
+                local key="${line%%=*}"
+                local value="${line#*=}"
+                
+                # Set the configuration value
                 eval "$key=\"$value\""
             fi
-        fi
-    done < "$file"
+        done
+    else
+        # Fall back to basic parser if Python/YAML is not available
+        parse_yaml "$file"
+    fi
 }
 
 # Function to get a configuration value
@@ -123,9 +163,14 @@ set_config() {
     
     # Check if the key already exists in the file
     if grep -q "^$key:" "$USER_CONFIG_FILE"; then
-        # Update existing key
-        sed -i.bak "s|^$key:.*|$key: $value|" "$USER_CONFIG_FILE"
-        rm -f "${USER_CONFIG_FILE}.bak"
+        # Platform-independent sed in-place edit
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS requires an extension with -i
+            sed -i '' "s|^$key:.*|$key: $value|" "$USER_CONFIG_FILE"
+        else
+            # Linux sed
+            sed -i "s|^$key:.*|$key: $value|" "$USER_CONFIG_FILE"
+        fi
     else
         # Add new key
         echo "$key: $value" >> "$USER_CONFIG_FILE"

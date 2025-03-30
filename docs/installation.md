@@ -1,15 +1,13 @@
 # Installation Guide
 
-This guide provides detailed instructions for installing AliasMate v2 on different platforms.
+This guide will help you install AliasMate v2 on your system.
 
 ## System Requirements
 
-- **Operating System**: Linux, macOS, or Windows (with WSL)
-- **Shell**: Bash 4.0+ or Zsh
-- **Dependencies**:
-  - `jq` (for JSON processing)
-  - `curl` or `wget` (for installation and updates)
-  - `dialog` or `whiptail` (for TUI functionality)
+- Linux or macOS
+- Bash 4.0 or higher
+- Required dependencies: `curl`, `bash`
+- Recommended dependencies: `jq` (for better YAML/JSON handling)
 
 ## Installation Methods
 
@@ -34,34 +32,29 @@ The script will:
 
 ### Package Managers
 
-#### Debian/Ubuntu
+For package manager installation:
+
+#### Homebrew (macOS)
 
 ```bash
-# Download the latest .deb package
-curl -LO https://github.com/akhshyganesh/aliasmate-v2/releases/latest/download/aliasmate_*.deb
-
-# Install the package
-sudo apt install ./aliasmate_*.deb
-```
-
-#### Fedora/CentOS/RHEL
-
-```bash
-# Download the latest .rpm package
-curl -LO https://github.com/akhshyganesh/aliasmate-v2/releases/latest/download/aliasmate-*.rpm
-
-# Install the package
-sudo dnf install ./aliasmate-*.rpm
-```
-
-#### macOS (Homebrew)
-
-```bash
-# Add the tap
 brew tap akhshyganesh/aliasmate
-
-# Install AliasMate
 brew install aliasmate
+```
+
+#### Debian/Ubuntu (APT)
+
+```bash
+# Add the repository
+echo "deb [trusted=yes] https://apt.akhshyganesh.com/ /" | sudo tee /etc/apt/sources.list.d/aliasmate.list
+sudo apt update
+sudo apt install aliasmate
+```
+
+#### Fedora/CentOS (RPM)
+
+```bash
+sudo dnf copr enable akhshyganesh/aliasmate
+sudo dnf install aliasmate
 ```
 
 ### Manual Installation
@@ -123,6 +116,36 @@ aliasmate save hello "echo 'Hello, World!'"
 aliasmate run hello
 ```
 
+## Docker Usage (For Testing Only)
+
+AliasMate includes Docker configuration for development and testing purposes. Note that Docker is not the recommended way to use AliasMate in production.
+
+### Running Tests in Docker
+
+```bash
+# Build and run the test container
+docker-compose up -d aliasmate-test
+
+# Enter the container
+docker-compose exec aliasmate-test bash
+
+# Run tests
+./scripts/run_tests.sh
+```
+
+### Testing Installation in Docker
+
+```bash
+# Run a fresh container
+docker run -it --rm ubuntu:22.04 bash
+
+# Install prerequisites
+apt update && apt install curl -y
+
+# Run the installer
+curl -sSL https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scripts/install.sh | bash
+```
+
 ## Troubleshooting Installation
 
 If you encounter issues during installation:
@@ -162,26 +185,3 @@ If you encounter issues during installation:
    ./scripts/build.sh
    sudo ./scripts/install.sh
    ```
-
-## Updating AliasMate
-
-To update to the latest version:
-
-```bash
-aliasmate --upgrade
-```
-
-## Uninstalling
-
-To remove AliasMate from your system:
-
-```bash
-# Remove the executable
-sudo rm /usr/local/bin/aliasmate
-
-# Remove configuration
-rm -rf ~/.config/aliasmate
-
-# Remove command store (WARNING: This will delete all your saved commands)
-rm -rf ~/.local/share/aliasmate
-```

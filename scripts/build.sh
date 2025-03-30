@@ -18,6 +18,7 @@ VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "0.1.0-dev")
 BUILD_DIR="$ROOT_DIR/build"
 DIST_DIR="$ROOT_DIR/dist"
 SRC_DIR="$ROOT_DIR/src"
+COMPLETIONS_DIR="$BUILD_DIR/completions"
 
 # Print banner
 echo -e "${BLUE}┌────────────────────────────────────────┐${NC}"
@@ -29,7 +30,7 @@ echo -e "${CYAN}Building version: $VERSION${NC}"
 verify_dependencies() {
     echo -e "\n${CYAN}Verifying build dependencies...${NC}"
     
-    local deps=("shellcheck" "fpm")
+    local deps=("shellcheck")
     local missing=()
     
     for dep in "${deps[@]}"; do
@@ -38,14 +39,20 @@ verify_dependencies() {
         fi
     done
     
+    # Optional dependency: fpm for package creation
+    if ! command -v fpm &> /dev/null; then
+        echo -e "${YELLOW}Note: 'fpm' is not installed. Package creation will be skipped.${NC}"
+        echo -e "To install fpm: gem install fpm"
+        # Don't add to missing, it's optional
+    fi
+    
     if [[ ${#missing[@]} -gt 0 ]]; then
         echo -e "${RED}Missing dependencies: ${missing[*]}${NC}"
         echo -e "Please install missing dependencies and try again."
         echo -e "  - shellcheck: Used for code quality checks"
-        echo -e "  - fpm: Used for package creation (gem install fpm)"
         exit 1
     else
-        echo -e "${GREEN}All build dependencies are met!${NC}"
+        echo -e "${GREEN}All required build dependencies are met!${NC}"
     fi
 }
 
@@ -55,7 +62,19 @@ run_tests() {
     
     # Run shellcheck
     echo -e "${YELLOW}Running shellcheck...${NC}"
-    find "$SRC_DIR" -type f -name "*.sh" -exec shellcheck -x {} \;
+    find "$SRC_DIR" -type f -name "*.sh" -exec shellcheck -x {} \; || {
+        echo -e "${RED}Shellcheck failed. Please fix the issues and try again.${NC}"
+        exit 1
+    }
+    
+    # Run unit tests if available
+    if [[ -f "$SCRIPT_DIR/run_tests.sh" ]]; then
+        echo -e "${YELLOW}Running unit tests...${NC}"
+        bash "$SCRIPT_DIR/run_tests.sh" || {
+            echo -e "${RED}Unit tests failed. Please fix the issues and try again.${NC}"
+            exit 1
+        }
+    fi
     
     echo -e "${GREEN}All tests passed!${NC}"
 }
@@ -69,6 +88,9 @@ prepare_build() {
     mkdir -p "$BUILD_DIR/usr/local/bin"
     mkdir -p "$BUILD_DIR/etc/aliasmate"
     mkdir -p "$BUILD_DIR/usr/share/doc/aliasmate"
+    mkdir -p "$BUILD_DIR/usr/share/bash-completion/completions"
+    mkdir -p "$BUILD_DIR/usr/share/zsh/site-functions"
+    mkdir -p "$COMPLETIONS_DIR"
     mkdir -p "$DIST_DIR"
     
     # Copy source files
@@ -79,9 +101,34 @@ prepare_build() {
     
     # Create main executable
     cat > "$BUILD_DIR/usr/local/bin/aliasmate" << 'EOF'
-#!/bin/bash
-exec /usr/local/bin/main.sh "$@"
+#!/usr/bin/env bash
+# AliasMate v2 - Main entry point
+
+# Find the real installation directory
+if [[ -L "$0" ]]; then
+    # Follow symlink to get the real path
+    REAL_PATH=$(readlink -f "$0" 2>/dev/null || readlink "$0" 2>/dev/null || echo "$0")
+    INSTALL_DIR=$(dirname "$REAL_PATH")
+else
+    INSTALL_DIR=$(dirname "$0")
+fi
+
+# Check if we're in Docker for testing
+if [ -f /.dockerenv ] || grep -q docker /proc/1/cgroup 2>/dev/null; then
+    export ALIASMATE_IN_DOCKER=true
+fi
+
+# Source the main script
+if [[ -f "$INSTALL_DIR/main.sh" ]]; then
+    source "$INSTALL_DIR/main.sh" "$@"
+else
+    echo "Error: AliasMate installation is broken - main.sh not found"
+    echo "Expected location: $INSTALL_DIR/main.sh"
+    echo "Try reinstalling AliasMate."
+    exit 1
+fi
 EOF
+
     chmod +x "$BUILD_DIR/usr/local/bin/aliasmate"
     
     # Copy configuration
@@ -96,261 +143,81 @@ EOF
     mkdir -p "$BUILD_DIR/var/lib/aliasmate/categories"
     mkdir -p "$BUILD_DIR/var/lib/aliasmate/stats"
     
-    # Create completion scripts directory
-    mkdir -p "$BUILD_DIR/usr/share/bash-completion/completions"
-    mkdir -p "$BUILD_DIR/usr/share/zsh/site-functions"
-    
     # Generate completion scripts
-    generate_bash_completion > "$BUILD_DIR/usr/share/bash-completion/completions/aliasmate"
-    generate_zsh_completion > "$BUILD_DIR/usr/share/zsh/site-functions/_aliasmate"
+    echo -e "${CYAN}Generating shell completion scripts...${NC}"
+    source "$SRC_DIR/core/utils.sh"
+    
+    generate_completion bash > "$BUILD_DIR/usr/share/bash-completion/completions/aliasmate"
+    generate_completion zsh > "$BUILD_DIR/usr/share/zsh/site-functions/_aliasmate"
+    
+    # Copy completion scripts to a directory for the installer
+    cp "$BUILD_DIR/usr/share/bash-completion/completions/aliasmate" "$COMPLETIONS_DIR/aliasmate.bash"
+    cp "$BUILD_DIR/usr/share/zsh/site-functions/_aliasmate" "$COMPLETIONS_DIR/aliasmate.zsh"
     
     echo -e "${GREEN}Build directory prepared successfully!${NC}"
 }
 
-# Generate bash completion script
-generate_bash_completion() {
-    cat << 'EOF'
-# Bash completion for AliasMate
-_aliasmate() {
-    local cur prev words cword
-    _init_completion || return
-
-    local commands="save run edit ls list search rm remove categories export import stats config sync batch --tui --help --version"
-
-    case "$prev" in
-        save|run|edit|rm|remove)
-            # Complete with saved aliases
-            COMPREPLY=($(compgen -W "$(find ~/.local/share/aliasmate -maxdepth 1 -name "*.json" -exec basename {} .json \; 2>/dev/null)" -- "$cur"))
-            return
-            ;;
-        search)
-            # No completion for search terms
-            return
-            ;;
-        --category)
-            # Complete with existing categories
-            COMPREPLY=($(compgen -W "$(find ~/.local/share/aliasmate/categories -type f -exec basename {} \; 2>/dev/null)" -- "$cur"))
-            return
-            ;;
-        --format)
-            # Complete with available formats
-            COMPREPLY=($(compgen -W "json csv yaml table names" -- "$cur"))
-            return
-            ;;
-        categories)
-            # Complete with category subcommands
-            COMPREPLY=($(compgen -W "list add rm remove rename" -- "$cur"))
-            return
-            ;;
-        config)
-            # Complete with config subcommands
-            COMPREPLY=($(compgen -W "list get set reset" -- "$cur"))
-            return
-            ;;
-        sync)
-            # Complete with sync subcommands
-            COMPREPLY=($(compgen -W "setup push pull status" -- "$cur"))
-            return
-            ;;
-        batch)
-            # Complete with batch subcommands
-            COMPREPLY=($(compgen -W "import edit run" -- "$cur"))
-            return
-            ;;
-    esac
-
-    # Complete with available commands or options
-    if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "--help --version --tui --upgrade" -- "$cur"))
-    else
-        COMPREPLY=($(compgen -W "$commands" -- "$cur"))
-    fi
-} &&
-complete -F _aliasmate aliasmate
-EOF
-}
-
-# Generate zsh completion script
-generate_zsh_completion() {
-    cat << 'EOF'
-#compdef aliasmate
-
-_aliasmate() {
-    local -a commands categories formats
+# Function to create distribution packages
+create_packages() {
+    echo -e "\n${CYAN}Creating distribution packages...${NC}"
     
-    commands=(
-        'save:Save a command with an alias'
-        'run:Run a saved command'
-        'edit:Edit a command'
-        'ls:List all commands'
-        'list:List all commands'
-        'search:Search for commands'
-        'rm:Remove a command'
-        'remove:Remove a command'
-        'categories:Manage categories'
-        'export:Export commands'
-        'import:Import commands'
-        'stats:Show command statistics'
-        'config:Manage configuration'
-        'sync:Synchronize commands'
-        'batch:Perform batch operations'
-    )
-    
-    # Get categories
-    if [[ -d ~/.local/share/aliasmate/categories ]]; then
-        categories=($(find ~/.local/share/aliasmate/categories -type f -exec basename {} \; 2>/dev/null))
+    if ! command -v fpm &> /dev/null; then
+        echo -e "${YELLOW}Skipping package creation - fpm not installed${NC}"
+        return 0
     fi
     
-    formats=(
-        'json:JSON format'
-        'yaml:YAML format'
-        'csv:CSV format'
-        'table:Table format'
-        'names:Just names'
-    )
-    
-    _arguments -C \
-        '(- *)--help[Show help information]' \
-        '(- *)--version[Show version information]' \
-        '(- *)--tui[Launch the Text User Interface]' \
-        '(- *)--upgrade[Update to the latest version]' \
-        '1: :->command' \
-        '*:: :->args'
-    
-    case $state in
-        command)
-            _describe -t commands 'aliasmate commands' commands
-            ;;
-        args)
-            case $words[1] in
-                save)
-                    _arguments \
-                        '2:alias name:' \
-                        '3:command:' \
-                        '--multi[Edit as multi-line command]' \
-                        '--category=[Specify category]:category:($categories)'
-                    ;;
-                run|edit|rm|remove)
-                    local -a aliases
-                    if [[ -d ~/.local/share/aliasmate ]]; then
-                        aliases=($(find ~/.local/share/aliasmate -maxdepth 1 -name "*.json" -exec basename {} .json \; 2>/dev/null))
-                    fi
-                    _arguments \
-                        '2:alias name:($aliases)' \
-                        '*::options:'
-                    ;;
-                ls|list)
-                    _arguments \
-                        '--category=[Filter by category]:category:($categories)' \
-                        '--format=[Output format]:format:($formats)' \
-                        '--sort=[Sort field]:(name path usage last_run)'
-                    ;;
-                search)
-                    _arguments \
-                        '2:search term:' \
-                        '--category=[Filter by category]:category:($categories)' \
-                        '--command[Search in command content]' \
-                        '--path[Search in paths]' \
-                        '--alias[Search in alias names]'
-                    ;;
-                categories)
-                    local -a subcmds
-                    subcmds=(
-                        'list:List all categories'
-                        'add:Add a new category'
-                        'rm:Remove a category'
-                        'remove:Remove a category'
-                        'rename:Rename a category'
-                    )
-                    _arguments \
-                        '2: :->subcmd' \
-                        '*:: :->subcmd_args'
-                    
-                    case $state in
-                        subcmd)
-                            _describe -t subcmds 'categories subcommands' subcmds
-                            ;;
-                        subcmd_args)
-                            case $words[1] in
-                                add)
-                                    _arguments '2:new category name:'
-                                    ;;
-                                rm|remove)
-                                    _arguments '2:category to remove:($categories)'
-                                    ;;
-                                rename)
-                                    _arguments \
-                                        '2:old category name:($categories)' \
-                                        '3:new category name:'
-                                    ;;
-                            esac
-                            ;;
-                    esac
-                    ;;
-                # Add other commands here...
-            esac
-            ;;
-    esac
-}
-
-_aliasmate "$@"
-EOF
-}
-
-# Function to build packages
-build_packages() {
-    echo -e "\n${CYAN}Building packages...${NC}"
-    
-    # Create tarball
+    # Create tar.gz archive
     echo -e "${YELLOW}Creating tarball...${NC}"
     tar -czf "$DIST_DIR/aliasmate-$VERSION.tar.gz" -C "$BUILD_DIR" .
     
     # Create DEB package
     echo -e "${YELLOW}Creating DEB package...${NC}"
-    fpm -s dir -t deb -n aliasmate -v "$VERSION" \
-        --description "AliasMate v2 - Command Alias Manager for the command line" \
+    fpm -s dir -t deb -n aliasmate -v "${VERSION#v}" \
+        --description "AliasMate - Command Alias Manager" \
         --url "https://github.com/akhshyganesh/aliasmate-v2" \
-        --maintainer "Akhshy Ganesh <akhshyganeshb@gmail.com>" \
         --license "MIT" \
-        --depends "jq" \
+        --maintainer "akhshyganesh" \
+        --vendor "akhshyganesh" \
         --depends "bash" \
-        --category "utils" \
+        --depends "jq" \
         -C "$BUILD_DIR" \
-        --deb-no-default-config-files \
-        usr etc var
+        -p "$DIST_DIR/aliasmate-$VERSION.deb" \
+        .
     
     # Create RPM package
     echo -e "${YELLOW}Creating RPM package...${NC}"
-    fpm -s dir -t rpm -n aliasmate -v "$VERSION" \
-        --description "AliasMate v2 - Command Alias Manager for the command line" \
+    fpm -s dir -t rpm -n aliasmate -v "${VERSION#v}" \
+        --description "AliasMate - Command Alias Manager" \
         --url "https://github.com/akhshyganesh/aliasmate-v2" \
-        --maintainer "Akhshy Ganesh <akhshyganeshb@gmail.com>" \
         --license "MIT" \
-        --depends "jq" \
+        --maintainer "akhshyganesh" \
+        --vendor "akhshyganesh" \
         --depends "bash" \
+        --depends "jq" \
         -C "$BUILD_DIR" \
-        usr etc var
+        -p "$DIST_DIR/aliasmate-$VERSION.rpm" \
+        .
     
-    # Move packages to dist directory
-    mv aliasmate*.deb "$DIST_DIR/"
-    mv aliasmate*.rpm "$DIST_DIR/"
-    
-    echo -e "${GREEN}All packages built successfully!${NC}"
-    ls -la "$DIST_DIR/"
+    echo -e "${GREEN}Packages created in $DIST_DIR${NC}"
+    ls -lh "$DIST_DIR"
 }
 
 # Main function
 main() {
+    # Verify dependencies
     verify_dependencies
-    run_tests
-    prepare_build
-    build_packages
     
-    echo -e "\n${GREEN}┌────────────────────────────────────────┐${NC}"
-    echo -e "${GREEN}│      Build completed successfully!      │${NC}"
-    echo -e "${GREEN}└────────────────────────────────────────┘${NC}"
-    echo -e "Packages are available in ${YELLOW}$DIST_DIR/${NC}"
+    # Run tests
+    run_tests
+    
+    # Prepare build directory
+    prepare_build
+    
+    # Create distribution packages
+    create_packages
+    
+    echo -e "\n${GREEN}Build completed successfully!${NC}"
 }
 
-# Execute the main function
-main
+# Call main function
+main "$@"

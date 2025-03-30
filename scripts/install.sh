@@ -18,41 +18,60 @@ CONFIG_DIR="/etc/aliasmate"
 USER_CONFIG_DIR="$HOME/.config/aliasmate"
 DATA_DIR="$HOME/.local/share/aliasmate"
 TEMP_DIR=$(mktemp -d)
+UPGRADE_MODE=false
+
+trap 'cleanup' EXIT
+
+cleanup() {
+    echo -e "\n${CYAN}Cleaning up temporary files...${NC}"
+    rm -rf "$TEMP_DIR"
+}
 
 echo -e "${BLUE}┌────────────────────────────────────────┐${NC}"
 echo -e "${BLUE}│       AliasMate v2 Installer           │${NC}"
 echo -e "${BLUE}└────────────────────────────────────────┘${NC}"
 
+# Process args
+for arg in "$@"; do
+    case "$arg" in
+        --upgrade)
+            UPGRADE_MODE=true
+            ;;
+        --debug)
+            set -x
+            print_debug_info
+            ;;
+    esac
+done
+
 # Print verbose debugging information
 print_debug_info() {
     echo -e "\n${CYAN}System information:${NC}"
     echo -e "  OS: $(uname -s)"
-    echo -e "  Arch: $(uname -m)"
+    echo -e "  Distribution: $(detect_os)"
+    echo -e "  Package manager: $(get_package_manager)"
     echo -e "  Shell: $SHELL"
     echo -e "  User: $(whoami)"
-    echo -e "  PATH: $PATH"
-    echo -e "  Install directory: $INSTALL_DIR"
-    echo -e "  Working directory: $(pwd)"
+    echo -e "  Running in Docker: $(is_docker && echo 'Yes' || echo 'No')"
+    echo -e "  Installation directory: $INSTALL_DIR"
+    echo -e "  User permissions: $(if need_sudo; then echo 'Requires sudo'; else echo 'No sudo needed'; fi)"
 }
 
-# Function to detect the OS and architecture
+# Function to detect OS
 detect_os() {
-    local os="unknown"
-    local arch=$(uname -m)
-    
-    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        os="linux"
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-        os="macos"
-    elif [[ "$OSTYPE" == "cygwin" ]] || [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
-        os="windows"
-    fi
-    
-    echo "Detected: $os on $arch"
+    local os=$(uname -s)
     
     case "$os" in
-        linux|macos)
-            # These platforms are supported
+        Linux)
+            if [ -f /etc/os-release ]; then
+                . /etc/os-release
+                echo "$NAME"
+            else
+                echo "Linux (generic)"
+            fi
+            ;;
+        Darwin)
+            echo "macOS"
             ;;
         *)
             echo -e "${RED}Error: Unsupported operating system: $os${NC}"
@@ -94,16 +113,22 @@ check_dependencies() {
                 brew install jq
                 ;;
             *)
-                echo -e "${RED}Error: Could not install jq automatically.${NC}"
-                echo "Please install jq manually and run the installer again."
-                exit 1
+                echo -e "${RED}Warning: Could not install jq automatically.${NC}"
+                echo "Please install jq manually before continuing."
+                read -p "Continue without jq? (y/n): " continue_without_jq
+                if [[ ! "$continue_without_jq" =~ ^[Yy]$ ]]; then
+                    exit 1
+                fi
                 ;;
         esac
         
         # Verify jq was installed successfully
         if ! command -v jq &> /dev/null; then
-            echo -e "${RED}Failed to install jq. Installation cannot continue.${NC}"
-            exit 1
+            echo -e "${YELLOW}Failed to install jq automatically.${NC}"
+            echo "AliasMate will have limited functionality without jq."
+            echo "Please consider installing jq manually after installation."
+        else
+            echo -e "${GREEN}Successfully installed jq!${NC}"
         fi
     fi
     
@@ -112,7 +137,7 @@ check_dependencies() {
         echo "Please install these dependencies and try again."
         exit 1
     else
-        echo -e "${GREEN}All dependencies are met!${NC}"
+        echo -e "${GREEN}All core dependencies are met!${NC}"
     fi
 }
 
@@ -142,11 +167,11 @@ is_docker() {
 
 # Function to determine if sudo is needed
 need_sudo() {
-    if [ "$(id -u)" -eq 0 ]; then
-        # Running as root, no need for sudo
+    if [ "$(id -u)" -eq 0 ] || [ -w "$INSTALL_DIR" ]; then
+        # Running as root or install dir is writable, no need for sudo
         return 1
     else
-        # Not running as root, need sudo
+        # Not running as root and install dir not writable, need sudo
         return 0
     fi
 }
@@ -179,7 +204,10 @@ download_source() {
     # Extract the source code
     echo -e "${CYAN}Extracting source code...${NC}"
     mkdir -p "$TEMP_DIR/source"
-    tar -xzf "$source_archive" -C "$TEMP_DIR/source" --strip-components=1
+    if ! tar -xzf "$source_archive" -C "$TEMP_DIR/source" --strip-components=1; then
+        echo -e "${RED}Error: Failed to extract source code${NC}"
+        exit 1
+    fi
     
     if [[ ! -d "$TEMP_DIR/source/src" ]]; then
         echo -e "${RED}Error: Invalid source archive - 'src' directory not found${NC}"
@@ -218,7 +246,7 @@ install_from_source() {
 # Find the real installation directory
 if [[ -L "$0" ]]; then
     # Follow symlink to get the real path
-    REAL_PATH=$(readlink -f "$0")
+    REAL_PATH=$(readlink -f "$0" 2>/dev/null || readlink "$0" 2>/dev/null || echo "$0")
     INSTALL_DIR=$(dirname "$REAL_PATH")
 else
     INSTALL_DIR=$(dirname "$0")
@@ -244,137 +272,95 @@ EOF
     # Copy source files
     run_with_sudo cp -r "$source_dir/src/"* "$INSTALL_DIR/"
     
-    # Make all shell scripts executable
-    echo -e "${CYAN}Making all scripts executable...${NC}"
-    run_with_sudo find "$INSTALL_DIR" -type f -name "*.sh" -exec chmod +x {} \;
+    # Make all script files executable
+    run_with_sudo chmod -R +x "$INSTALL_DIR/"*.sh
     
-    # Copy config files
-    if [[ -d "$source_dir/config" ]]; then
-        run_with_sudo cp -r "$source_dir/config/"* "$CONFIG_DIR/"
-        cp -r "$source_dir/config/"* "$USER_CONFIG_DIR/"
+    # Copy default configuration file
+    if [[ ! -f "$USER_CONFIG_DIR/config.yaml" ]]; then
+        echo -e "${CYAN}Setting up default configuration...${NC}"
+        cp "$source_dir/config/config.yaml" "$USER_CONFIG_DIR/"
+        # Update paths in the config file
+        sed -i.bak "s|COMMAND_STORE:.*|COMMAND_STORE: $DATA_DIR|g" "$USER_CONFIG_DIR/config.yaml"
+        rm -f "$USER_CONFIG_DIR/config.yaml.bak"
     else
-        # Create a basic config file if none exists
-        cat > "$TEMP_DIR/config.yaml" << EOF
-COMMAND_STORE: $DATA_DIR
-LOG_FILE: $USER_CONFIG_DIR/aliasmate.log
-LOG_LEVEL: info
-EDITOR: vi
-VERSION_CHECK: true
-THEME: default
-EOF
-        run_with_sudo cp "$TEMP_DIR/config.yaml" "$CONFIG_DIR/"
-        cp "$TEMP_DIR/config.yaml" "$USER_CONFIG_DIR/"
+        echo -e "${CYAN}Preserving existing user configuration...${NC}"
     fi
     
-    # Verify installation
-    if [[ ! -x "$INSTALL_DIR/aliasmate" ]]; then
-        echo -e "${RED}Error: Installation failed - executable not found${NC}"
-        echo "The aliasmate executable should be at $INSTALL_DIR/aliasmate"
-        exit 1
+    # Set up shell completion for bash if available
+    if [[ -d "/etc/bash_completion.d" ]] && [[ -f "$source_dir/completions/aliasmate.bash" ]]; then
+        echo -e "${CYAN}Installing bash completion...${NC}"
+        run_with_sudo cp "$source_dir/completions/aliasmate.bash" "/etc/bash_completion.d/aliasmate"
     fi
     
-    # Create symlink if /usr/bin is in PATH but /usr/local/bin is not
-    if [[ ! ":$PATH:" == *":/usr/local/bin:"* ]] && [[ ":$PATH:" == *":/usr/bin:"* ]]; then
-        echo -e "${YELLOW}Creating symlink in /usr/bin for compatibility...${NC}"
-        run_with_sudo ln -sf "$INSTALL_DIR/aliasmate" /usr/bin/aliasmate
+    # Set up shell completion for zsh if available
+    if [[ -d "/usr/share/zsh/site-functions" ]] && [[ -f "$source_dir/completions/aliasmate.zsh" ]]; then
+        echo -e "${CYAN}Installing zsh completion...${NC}"
+        run_with_sudo cp "$source_dir/completions/aliasmate.zsh" "/usr/share/zsh/site-functions/_aliasmate"
     fi
     
-    echo -e "${GREEN}Installation from source complete!${NC}"
+    echo -e "${GREEN}Installation completed successfully!${NC}"
+    echo -e "${CYAN}AliasMate is now installed at: $INSTALL_DIR/aliasmate${NC}"
 }
 
-# Function to perform post-installation steps
-post_install() {
-    echo -e "\n${GREEN}AliasMate v2 has been installed!${NC}"
+# Function to configure shell integrations
+configure_shell_integration() {
+    echo -e "\n${CYAN}Configuring shell integration...${NC}"
     
-    # Verify the installation
-    echo -e "${CYAN}Verifying installation...${NC}"
+    # Detect shell type
+    local shell_type=$(basename "$SHELL")
+    local rc_file=""
+    local completion_cmd=""
     
-    if command -v aliasmate &> /dev/null; then
-        echo -e "${GREEN}  ✓ 'aliasmate' command is available${NC}"
-    else
-        echo -e "${RED}  ✗ 'aliasmate' command not found in PATH${NC}"
-        echo -e "${YELLOW}  You may need to add $INSTALL_DIR to your PATH${NC}"
-        echo -e "${YELLOW}  or create a symlink to $INSTALL_DIR/aliasmate in a directory in your PATH${NC}"
-        
-        # Suggest commands to fix PATH
-        echo -e "\n${CYAN}To add aliasmate to your PATH, run one of these commands:${NC}"
-        echo -e "  echo 'export PATH=\$PATH:$INSTALL_DIR' >> ~/.bashrc && source ~/.bashrc"
-        echo -e "  sudo ln -sf $INSTALL_DIR/aliasmate /usr/bin/aliasmate"
-    fi
+    case "$shell_type" in
+        bash)
+            rc_file="$HOME/.bashrc"
+            completion_cmd="source <(aliasmate completion bash)"
+            ;;
+        zsh)
+            rc_file="$HOME/.zshrc"
+            completion_cmd="source <(aliasmate completion zsh)"
+            ;;
+        *)
+            echo -e "${YELLOW}Shell type '$shell_type' not directly supported for auto-configuration.${NC}"
+            echo -e "To enable shell completion manually, run one of these commands:"
+            echo -e "  For Bash: echo 'source <(aliasmate completion bash)' >> ~/.bashrc"
+            echo -e "  For Zsh: echo 'source <(aliasmate completion zsh)' >> ~/.zshrc"
+            return 0
+            ;;
+    esac
     
-    # Show where files are installed
-    echo -e "\n${CYAN}Installation locations:${NC}"
-    echo -e "  Executable: $INSTALL_DIR/aliasmate"
-    echo -e "  System config: $CONFIG_DIR"
-    echo -e "  User config: $USER_CONFIG_DIR"
-    echo -e "  Data directory: $DATA_DIR"
-    
-    # Offer to run the onboarding tutorial
-    if [[ -t 0 && -t 1 ]] && command -v aliasmate &> /dev/null; then  # Only offer if running in an interactive terminal
-        echo -e "\nWould you like to run the onboarding tutorial? [y/N]"
-        read -r run_tutorial
-        if [[ "$run_tutorial" =~ ^[Yy] ]]; then
-            aliasmate tutorial onboarding
+    # Ask user if they want to set up shell completion
+    read -p "Would you like to set up shell completion for $shell_type? (y/n): " setup_completion
+    if [[ "$setup_completion" =~ ^[Yy]$ ]]; then
+        if grep -q "aliasmate completion" "$rc_file"; then
+            echo -e "${YELLOW}Shell completion appears to be already configured in $rc_file${NC}"
         else
-            echo -e "\nYou can run the tutorial anytime with: ${YELLOW}aliasmate tutorial${NC}"
-            echo -e "For basic usage, run: ${YELLOW}aliasmate --help${NC}"
+            echo "$completion_cmd" >> "$rc_file"
+            echo -e "${GREEN}Shell completion has been added to $rc_file${NC}"
+            echo -e "To activate it in your current session, run: source $rc_file"
         fi
+    else
+        echo -e "${CYAN}Skipping shell completion setup.${NC}"
     fi
-    
-    echo -e "\n${GREEN}Installation complete. Enjoy using AliasMate!${NC}"
 }
 
-# Function to clean up temporary files
-cleanup() {
-    echo -e "\n${CYAN}Cleaning up...${NC}"
-    rm -rf "$TEMP_DIR"
-}
-
-# Function to handle installation errors
-handle_error() {
-    echo -e "\n${RED}Error: Installation failed!${NC}"
-    echo -e "Please check the error messages above."
-    echo -e "If you need help, please open an issue at:"
-    echo -e "https://github.com/$REPO/issues"
-    
-    # Print debug information to help diagnose the issue
-    print_debug_info
-    
-    # Clean up before exiting
-    cleanup
-    exit 1
-}
-
-# Main installation flow
+# Main installation function
 main() {
-    # Set up error handling
-    trap handle_error ERR
+    echo -e "${CYAN}Starting AliasMate installation...${NC}"
     
-    # Check if we're in Docker and adjust accordingly
-    if is_docker; then
-        echo -e "${CYAN}Detected Docker environment. Using simplified installation...${NC}"
-        if [ -f ./scripts/docker_install.sh ]; then
-            chmod +x ./scripts/docker_install.sh
-            ./scripts/docker_install.sh
-            exit $?
-        fi
-    fi
-    
-    detect_os
+    # Check for dependencies
     check_dependencies
-    download_source
-    post_install
     
-    echo -e "\n${GREEN}┌────────────────────────────────────────┐${NC}"
-    echo -e "${GREEN}│    AliasMate v2 installed successfully  │${NC}"
-    echo -e "${GREEN}└────────────────────────────────────────┘${NC}"
-    echo -e "${YELLOW}To get started, run:${NC} aliasmate --help"
-    echo -e "${YELLOW}Or launch the TUI:${NC} aliasmate --tui"
-    echo -e "${YELLOW}For tutorials:${NC} aliasmate tutorial"
+    # Download and install
+    download_source
+    
+    # Configure shell integration
+    configure_shell_integration
+    
+    echo -e "\n${GREEN}AliasMate v2 has been successfully installed!${NC}"
+    echo -e "To get started, run: ${CYAN}aliasmate --help${NC}"
+    echo -e "For more information, visit: ${CYAN}https://github.com/$REPO${NC}"
 }
 
-# Execute the main function
+# Execute main function
 main
-
-# Trap for cleanup
-trap cleanup EXIT

@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # AliasMate v2 - Main entry point
 
-set -e
+# Set error handling
+set -o pipefail
+
+# Define version
+VERSION="0.2.0"
 
 # Define colors
 RED='\033[0;31m'
@@ -9,118 +13,70 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m' # No Color
 
-# Set version
-VERSION="2.0.0"
-
-# Get script directory safely
+# Initialize variables
+USE_COLORS=true
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Debug function to help diagnose issues
-debug_env() {
-    echo "Current directory: $(pwd)"
-    echo "Script directory: $SCRIPT_DIR"
-    echo "Files in script directory:"
-    ls -la "$SCRIPT_DIR"
-}
+# Check if we're in a Docker test environment
+if [ -f /.dockerenv ] || grep -q docker /proc/1/cgroup 2>/dev/null; then
+    echo -e "${YELLOW}Running AliasMate in Docker test environment${NC}"
+    echo -e "${YELLOW}Note: This is for testing purposes only, some features may be limited${NC}"
+    export ALIASMATE_IN_DOCKER=true
+fi
 
-# In case of errors, print diagnostic information
-handle_error() {
-    echo -e "${RED}Error occurred in AliasMate.${NC}"
-    echo "Printing diagnostic information:"
-    debug_env
-    exit 1
-}
-
-# Set error trap
-trap handle_error ERR
-
-# Source modules - using relative paths for better compatibility
-echo "Loading modules from $SCRIPT_DIR"
-source "$SCRIPT_DIR/config.sh"
+# Source dependencies
+source "$SCRIPT_DIR/core/config.sh"
+source "$SCRIPT_DIR/core/logging.sh"
+source "$SCRIPT_DIR/core/utils.sh"
 source "$SCRIPT_DIR/commands.sh"
-source "$SCRIPT_DIR/ui_components.sh"
-source "$SCRIPT_DIR/utils.sh"
-source "$SCRIPT_DIR/tui.sh"
-source "$SCRIPT_DIR/categories.sh"
-source "$SCRIPT_DIR/search.sh"
-source "$SCRIPT_DIR/sync.sh"
-source "$SCRIPT_DIR/stats.sh"
-source "$SCRIPT_DIR/batch.sh"
-source "$SCRIPT_DIR/tutorials.sh"
 
 # Load configuration
 load_config
 
-# Check for updates (if enabled)
-if [[ "$VERSION_CHECK" == "true" ]]; then
-    # Run update check in background for better startup performance
-    check_for_updates &
-fi
-
-# Initialize command store if it doesn't exist
-if [[ ! -d "$COMMAND_STORE" ]]; then
-    mkdir -p "$COMMAND_STORE"
-    mkdir -p "$COMMAND_STORE/categories"
-    mkdir -p "$COMMAND_STORE/stats"
-fi
-
-# Initialize cache for better performance
-init_cache
-
-# Print application header
-print_header() {
-    echo -e "${BLUE}┌───────────────────────────────────────────────┐${NC}"
-    echo -e "${BLUE}│       AliasMate v$VERSION - Command Manager       │${NC}"
-    echo -e "${BLUE}└───────────────────────────────────────────────┘${NC}"
-}
-
-# Print detailed help message
-show_help() {
-    print_header
+# Function to print the help message
+print_help() {
     cat << EOF
+${BOLD}NAME${NC}
+    aliasmate - Command Alias Manager v$VERSION
 
-${BOLD}USAGE:${NC}
-  aliasmate [OPTIONS] COMMAND [ARGUMENTS]
+${BOLD}SYNOPSIS${NC}
+    aliasmate <command> [options]
 
-${BOLD}OPTIONS:${NC}
-  --help, -h              Show this help message and exit
-  --version, -v           Show version information
-  --tui                   Launch the Text User Interface (recommended for beginners)
-  --update, --upgrade     Update AliasMate to the latest version
-  --completion <shell>    Generate shell completion scripts (bash/zsh)
-  --no-color              Disable colored output
-  --quiet, -q             Suppress non-error output
+${BOLD}DESCRIPTION${NC}
+    AliasMate is a powerful command alias manager for Linux and macOS.
+    Store, organize, and execute your commonly used commands with ease.
 
 ${BOLD}COMMANDS:${NC}
-  ${CYAN}Command Management:${NC}
-    save <alias> <command>  Save a command with an alias name
-         <alias> --multi    Save a multi-line command using editor
-         <alias> --category <category>  Save with a category
-    
-    run <alias>             Run a saved command
-         [--path <path>]    Run in specified path (instead of default)
-         [--args <args>]    Pass additional arguments to the command
-    
-    edit <alias>            Edit both command and path for an alias
-         [--cmd]            Edit only the command
-         [--path]           Edit only the default path
-         [--category]       Edit the category
-    
-    rm, remove <alias>      Remove a specific alias
+
+  ${CYAN}Basic Usage:${NC}
+    save <alias> <command>  Save a command with an alias
+         [--multi]         Edit the command in multi-line mode
+         [--category <cat>] Assign to a category
   
-  ${CYAN}Listing and Search:${NC}
-    ls, list                List all saved aliases with details
-         [--category <cat>] List aliases in a specific category
-         [--sort <field>]   Sort by name, path, usage, last_run
-         [--format <fmt>]   Output format: table, json, csv, names
-    
-    search <term>           Search for aliases by name or command content
-           [--category <c>] Search in a specific category
-           [--command]      Search only in command content
-           [--path]         Search only in paths
-           [--alias]        Search only in alias names
+    run <alias>            Run a saved command
+        [--path <dir>]     Run in specified directory
+        [--args <args>]    Pass additional arguments
+  
+    edit <alias>           Edit a saved command
+         [--path]          Edit only the path
+  
+    ls, list [pattern]     List all saved commands
+         [--category <cat>] Filter by category
+         [--format <fmt>]  Output format: table, json, csv, names
+         [--sort <field>]  Sort by: name, runs, last_run
+  
+    rm, remove <alias>     Remove a saved command
+         [--force]         Remove without confirmation
+  
+  ${CYAN}Search & Discovery:${NC}
+    search <query>         Search for commands
+           [--category]    Filter by category
+           [--command]     Search only in command content
+           [--path]        Search only in paths
+           [--alias]       Search only in alias names
   
   ${CYAN}Organization:${NC}
     categories              List available categories
@@ -161,16 +117,17 @@ ${BOLD}COMMANDS:${NC}
          pull               Pull aliases from cloud
          status             Check sync status
 
-  ${CYAN}Tutorials:${NC}
-    tutorial, learn         Run interactive tutorials for beginners
-         onboarding         Start onboarding tutorial
+  ${CYAN}System & Updates:${NC}
+    completion [shell]      Generate shell completion script
+    --upgrade               Check for updates and upgrade
+    --version               Show version information
+    --help                  Show this help message
 
 ${BOLD}EXAMPLES:${NC}
   aliasmate save build-app "npm run build"
   aliasmate run build-app
   aliasmate ls --category development
   aliasmate search "database"
-  aliasmate tutorial onboarding
 
 ${BOLD}DOCUMENTATION:${NC}
   For complete documentation, visit:
@@ -179,175 +136,101 @@ ${BOLD}DOCUMENTATION:${NC}
 EOF
 }
 
-# Show a condensed help for quick reference
-show_quick_help() {
-    echo -e "${CYAN}AliasMate v$VERSION Quick Reference:${NC}"
-    echo -e " - ${YELLOW}save <alias> <cmd>${NC}: Save a command"
-    echo -e " - ${YELLOW}run <alias>${NC}: Run a command"
-    echo -e " - ${YELLOW}ls${NC}: List all commands"
-    echo -e " - ${YELLOW}search <term>${NC}: Search commands"
-    echo -e " - ${YELLOW}tutorial${NC}: Run interactive tutorials"
-    echo -e "Use ${YELLOW}aliasmate --help${NC} for full documentation"
-}
-
-# Main entry point to handle commands
+# Main function
 main() {
-    # Start with basic initialization
-    init_app
-    
-    # No arguments, show TUI or help
+    # No arguments provided
     if [[ $# -eq 0 ]]; then
-        if [[ "$DEFAULT_UI" == "tui" ]]; then
-            launch_tui
-        else
-            show_quick_help
-        fi
+        print_help
         exit 0
     fi
     
-    # Parse command line arguments
-    case "$1" in
+    # Process command line arguments
+    local command="$1"
+    shift
+    
+    # Check for updates (unless disabled)
+    check_update
+    
+    # Process commands
+    case "$command" in
+        # Help and version info
         --help|-h)
-            show_help
-            exit 0
+            print_help
             ;;
-            
         --version|-v)
             echo "AliasMate v$VERSION"
-            exit 0
             ;;
-            
-        --tui)
-            launch_tui
-            exit 0
-            ;;
-            
-        --completion)
-            if [[ -z "$2" ]]; then
-                print_error "Missing shell type (bash or zsh)"
-                exit 1
-            fi
-            generate_completion "$2"
-            exit 0
-            ;;
-            
-        --update|--upgrade)
+        --upgrade)
             update_aliasmate
-            exit 0
             ;;
-            
-        --no-color)
-            # Disable colors for this session
-            RED=''
-            GREEN=''
-            YELLOW=''
-            BLUE=''
-            CYAN=''
-            BOLD=''
-            NC=''
-            shift
-            ;;
-            
-        --quiet|-q)
-            # Redirect stdout to null for non-error output
-            exec 1>/dev/null
-            shift
-            ;;
-            
+        # Command management
         save)
-            shift
             save_command "$@"
             ;;
-            
         run)
-            shift
             run_command "$@"
             ;;
-            
         edit)
-            shift
             edit_command "$@"
             ;;
-            
         ls|list)
-            shift
             list_commands "$@"
             ;;
-            
-        search)
-            shift
-            search_commands "$@"
-            ;;
-            
-        stats)
-            shift
-            show_stats "$@"
-            ;;
-            
         rm|remove)
-            shift
             remove_command "$@"
             ;;
-            
+        # Search
+        search)
+            search_commands "$@"
+            ;;
+        # Categories
         categories)
-            shift
             manage_categories "$@"
             ;;
-            
+        # Tags
         tags)
-            shift
             manage_tags "$@"
             ;;
-            
+        # Import/Export
         export)
-            shift
             export_commands "$@"
             ;;
-            
         import)
-            shift
             import_commands "$@"
             ;;
-            
+        # Statistics
+        stats)
+            show_stats "$@"
+            ;;
+        # Config management
         config)
-            shift
             manage_config "$@"
             ;;
-            
+        # Batch operations
+        batch)
+            batch_operations "$@"
+            ;;
+        # Sync
         sync)
-            shift
             sync_commands "$@"
             ;;
-            
-        batch)
-            shift
-            handle_batch "$@"
+        # Shell completion
+        completion)
+            shell=${1:-bash}
+            generate_completion "$shell"
             ;;
-            
-        tutorial|learn)
-            shift
-            if [[ $# -eq 0 ]]; then
-                run_onboarding
-            else
-                show_tutorial "$1"
-            fi
-            exit 0
+        # Advanced features
+        --tui)
+            launch_tui "$@"
             ;;
-            
+        # Unknown command
         *)
-            # Check if this is a saved command alias that the user wants to run
-            if [[ -f "$COMMAND_STORE/$1.json" ]]; then
-                local alias_to_run="$1"
-                shift
-                run_command "$alias_to_run" "$@"
-            else
-                print_error "Unknown command '$1'"
-                show_quick_help
-                exit 1
-            fi
+            print_error "Unknown command: $command"
+            echo "Run 'aliasmate --help' for usage information."
+            exit 1
             ;;
     esac
 }
 
-# Execute the main function
+# Execute main function
 main "$@"
