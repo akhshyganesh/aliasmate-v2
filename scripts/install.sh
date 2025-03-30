@@ -131,6 +131,35 @@ get_package_manager() {
     fi
 }
 
+# Function to detect if running in Docker
+is_docker() {
+    if [ -f /.dockerenv ] || grep -q docker /proc/1/cgroup 2>/dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Function to determine if sudo is needed
+need_sudo() {
+    if [ "$(id -u)" -eq 0 ]; then
+        # Running as root, no need for sudo
+        return 1
+    else
+        # Not running as root, need sudo
+        return 0
+    fi
+}
+
+# Helper function to run a command with sudo if needed
+run_with_sudo() {
+    if need_sudo; then
+        sudo "$@"
+    else
+        "$@"
+    fi
+}
+
 # Function to download the source directly rather than using GitHub releases
 download_source() {
     echo -e "\n${CYAN}Downloading AliasMate source code...${NC}"
@@ -170,8 +199,8 @@ install_from_source() {
     echo -e "\n${CYAN}Installing AliasMate from source...${NC}"
     
     # Create necessary directories
-    sudo mkdir -p "$INSTALL_DIR"
-    sudo mkdir -p "$CONFIG_DIR"
+    run_with_sudo mkdir -p "$INSTALL_DIR"
+    run_with_sudo mkdir -p "$CONFIG_DIR"
     mkdir -p "$USER_CONFIG_DIR"
     mkdir -p "$DATA_DIR"
     mkdir -p "$DATA_DIR/categories"
@@ -210,18 +239,18 @@ EOF
     chmod +x "$TEMP_DIR/aliasmate"
     
     # Copy the main executable
-    sudo cp "$TEMP_DIR/aliasmate" "$INSTALL_DIR/aliasmate"
+    run_with_sudo cp "$TEMP_DIR/aliasmate" "$INSTALL_DIR/aliasmate"
     
     # Copy source files
-    sudo cp -r "$source_dir/src/"* "$INSTALL_DIR/"
+    run_with_sudo cp -r "$source_dir/src/"* "$INSTALL_DIR/"
     
     # Make all shell scripts executable
     echo -e "${CYAN}Making all scripts executable...${NC}"
-    sudo find "$INSTALL_DIR" -type f -name "*.sh" -exec chmod +x {} \;
+    run_with_sudo find "$INSTALL_DIR" -type f -name "*.sh" -exec chmod +x {} \;
     
     # Copy config files
     if [[ -d "$source_dir/config" ]]; then
-        sudo cp -r "$source_dir/config/"* "$CONFIG_DIR/"
+        run_with_sudo cp -r "$source_dir/config/"* "$CONFIG_DIR/"
         cp -r "$source_dir/config/"* "$USER_CONFIG_DIR/"
     else
         # Create a basic config file if none exists
@@ -233,7 +262,7 @@ EDITOR: vi
 VERSION_CHECK: true
 THEME: default
 EOF
-        sudo cp "$TEMP_DIR/config.yaml" "$CONFIG_DIR/"
+        run_with_sudo cp "$TEMP_DIR/config.yaml" "$CONFIG_DIR/"
         cp "$TEMP_DIR/config.yaml" "$USER_CONFIG_DIR/"
     fi
     
@@ -247,7 +276,7 @@ EOF
     # Create symlink if /usr/bin is in PATH but /usr/local/bin is not
     if [[ ! ":$PATH:" == *":/usr/local/bin:"* ]] && [[ ":$PATH:" == *":/usr/bin:"* ]]; then
         echo -e "${YELLOW}Creating symlink in /usr/bin for compatibility...${NC}"
-        sudo ln -sf "$INSTALL_DIR/aliasmate" /usr/bin/aliasmate
+        run_with_sudo ln -sf "$INSTALL_DIR/aliasmate" /usr/bin/aliasmate
     fi
     
     echo -e "${GREEN}Installation from source complete!${NC}"
@@ -320,6 +349,16 @@ handle_error() {
 main() {
     # Set up error handling
     trap handle_error ERR
+    
+    # Check if we're in Docker and adjust accordingly
+    if is_docker; then
+        echo -e "${CYAN}Detected Docker environment. Using simplified installation...${NC}"
+        if [ -f ./scripts/docker_install.sh ]; then
+            chmod +x ./scripts/docker_install.sh
+            ./scripts/docker_install.sh
+            exit $?
+        fi
+    fi
     
     detect_os
     check_dependencies

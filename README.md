@@ -48,17 +48,28 @@ wget -qO- https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scrip
 For Docker containers or environments where the standard installation doesn't work:
 
 ```bash
-# Download and manually run the installation script
-wget -qO install.sh https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scripts/install.sh
-chmod +x install.sh
-./install.sh
+# Clone the repository
+git clone https://github.com/akhshyganesh/aliasmate-v2.git
+cd aliasmate-v2
 
-# If the 'aliasmate' command is still not found, create a symlink
-sudo ln -sf /usr/local/bin/aliasmate /usr/bin/aliasmate
+# Make the Docker install script executable
+chmod +x scripts/docker_install.sh
 
-# Or add to your PATH
-echo 'export PATH=$PATH:/usr/local/bin' >> ~/.bashrc
-source ~/.bashrc
+# Run the Docker-specific installation script (no build dependencies required)
+./scripts/docker_install.sh
+```
+
+If you're in a minimal container and don't have git:
+
+```bash
+# Download just the necessary scripts
+mkdir -p aliasmate-v2/scripts
+wget -O aliasmate-v2/scripts/docker_install.sh https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scripts/docker_install.sh
+chmod +x aliasmate-v2/scripts/docker_install.sh
+
+# Run the installer (will download the rest of the code)
+cd aliasmate-v2
+./scripts/docker_install.sh
 ```
 
 ### Manual Installation
