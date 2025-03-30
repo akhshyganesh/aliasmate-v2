@@ -14,8 +14,30 @@ NC='\033[0m' # No Color
 # Set version
 VERSION="2.0.0"
 
-# Source modules
+# Get script directory safely
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Debug function to help diagnose issues
+debug_env() {
+    echo "Current directory: $(pwd)"
+    echo "Script directory: $SCRIPT_DIR"
+    echo "Files in script directory:"
+    ls -la "$SCRIPT_DIR"
+}
+
+# In case of errors, print diagnostic information
+handle_error() {
+    echo -e "${RED}Error occurred in AliasMate.${NC}"
+    echo "Printing diagnostic information:"
+    debug_env
+    exit 1
+}
+
+# Set error trap
+trap handle_error ERR
+
+# Source modules - using relative paths for better compatibility
+echo "Loading modules from $SCRIPT_DIR"
 source "$SCRIPT_DIR/config.sh"
 source "$SCRIPT_DIR/commands.sh"
 source "$SCRIPT_DIR/ui_components.sh"
