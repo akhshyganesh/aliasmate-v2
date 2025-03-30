@@ -81,7 +81,8 @@ search_commands() {
     local search_fields=()
     
     if [[ "$search_in_alias" == "true" ]]; then
-        search_fields+=(".alias | contains(\"$search_term\")")
+        # Use case-insensitive search for better UX
+        search_fields+=(".alias | ascii_downcase | contains(\"$(echo "$search_term" | tr '[:upper:]' '[:lower:]')\")")
     fi
     
     if [[ "$search_in_command" == "true" ]]; then
@@ -101,15 +102,26 @@ search_commands() {
         jq_filter="$jq_filter and .category == \"$search_category\""
     fi
     
-    # Execute the search
+    # Execute the search with optimized jq usage - only retrieve fields we need
     find "$COMMAND_STORE" -maxdepth 1 -name "*.json" -exec cat {} \; | 
-    jq -c "select($jq_filter)" > "$temp_file"
+    jq -c "select($jq_filter) | {alias: .alias, command: .command, category: .category, runs: .runs}" > "$temp_file"
     
     # Check if any results were found
     if [[ ! -s "$temp_file" ]]; then
         print_info "No commands found matching '$search_term'"
         rm -f "$temp_file"
         return 0
+    fi
+    
+    # Add a relevance score for sorting results
+    if [[ "$search_in_alias" == "true" || "$search_in_command" == "true" ]]; then
+        jq -s '[.[] | . + {relevance: (if .alias | contains("'$search_term'") then 10 else 0 end) + 
+                           (if .command | contains("'$search_term'") then 5 else 0 end) + 
+                           .runs}] | sort_by(.relevance) | reverse' "$temp_file" > "${temp_file}.sorted"
+        mv "${temp_file}.sorted" "$temp_file"
+    else
+        jq -s 'sort_by(.alias)' "$temp_file" > "${temp_file}.sorted"
+        mv "${temp_file}.sorted" "$temp_file"
     fi
     
     # Count results

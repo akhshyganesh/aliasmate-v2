@@ -77,13 +77,40 @@ show_stats() {
         return 0
     fi
     
-    # Display stats
+    # Display stats with better performance for large command sets
     echo -e "${CYAN}Command Usage Statistics${NC}"
     echo -e "${CYAN}=======================${NC}"
     
-    # Get total number of commands and runs
-    local cmd_count=$(jq 'length' "$temp_file")
-    local run_count=$(jq 'map(.runs) | add' "$temp_file")
+    # Get total number of commands and runs more efficiently
+    local cmd_count=$(find "$COMMAND_STORE" -maxdepth 1 -name "*.json" | wc -l)
+    
+    # Process in batches for better performance with large command sets
+    local batch_size=50
+    local batch_files=()
+    local batch_count=0
+    local run_count=0
+    
+    # Process files in batches to avoid loading everything into memory
+    find "$COMMAND_STORE" -maxdepth 1 -name "*.json" | sort | while read -r file; do
+        batch_files+=("$file")
+        ((batch_count++))
+        
+        if [[ $batch_count -eq $batch_size ]]; then
+            # Process this batch
+            local batch_runs=$(jq -s 'map(.runs) | add' "${batch_files[@]}")
+            run_count=$((run_count + batch_runs))
+            
+            # Reset for next batch
+            batch_files=()
+            batch_count=0
+        fi
+    done
+    
+    # Process any remaining files
+    if [[ ${#batch_files[@]} -gt 0 ]]; then
+        local batch_runs=$(jq -s 'map(.runs) | add' "${batch_files[@]}")
+        run_count=$((run_count + batch_runs))
+    fi
     
     echo -e "Total commands: ${YELLOW}$cmd_count${NC}"
     echo -e "Total executions: ${YELLOW}$run_count${NC}"
