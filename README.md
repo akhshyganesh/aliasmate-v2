@@ -88,6 +88,24 @@ chmod +x scripts/make_executable.sh
 sudo ./scripts/install.sh
 ```
 
+### Testing with Docker
+
+If you want to test AliasMate in Docker without installing it on your host system:
+
+```bash
+# Build a test Docker image
+docker build -t aliasmate-test .
+
+# Run the container
+docker run -it aliasmate-test
+
+# Inside the container, you can test AliasMate
+aliasmate --help
+aliasmate --tui
+```
+
+This is useful for testing features or for trying AliasMate before installing it on your system.
+
 ## Quick Start
 
 ```bash
