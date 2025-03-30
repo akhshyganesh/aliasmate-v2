@@ -23,6 +23,18 @@ echo -e "${BLUE}┌────────────────────�
 echo -e "${BLUE}│       AliasMate v2 Installer           │${NC}"
 echo -e "${BLUE}└────────────────────────────────────────┘${NC}"
 
+# Print verbose debugging information
+print_debug_info() {
+    echo -e "\n${CYAN}System information:${NC}"
+    echo -e "  OS: $(uname -s)"
+    echo -e "  Arch: $(uname -m)"
+    echo -e "  Shell: $SHELL"
+    echo -e "  User: $(whoami)"
+    echo -e "  PATH: $PATH"
+    echo -e "  Install directory: $INSTALL_DIR"
+    echo -e "  Working directory: $(pwd)"
+}
+
 # Function to detect the OS and architecture
 detect_os() {
     local os="unknown"
@@ -54,7 +66,7 @@ detect_os() {
 check_dependencies() {
     echo -e "\n${CYAN}Checking dependencies...${NC}"
     
-    local deps=("curl" "bash" "jq")
+    local deps=("curl" "bash")
     local missing=()
     
     for dep in "${deps[@]}"; do
@@ -63,29 +75,42 @@ check_dependencies() {
         fi
     done
     
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        echo -e "${YELLOW}Missing dependencies: ${missing[*]}${NC}"
+    # Special check for jq - it's needed but we can install it if missing
+    if ! command -v jq &> /dev/null; then
+        echo -e "${YELLOW}Required dependency 'jq' is missing. Attempting to install...${NC}"
         
         case $(get_package_manager) in
             apt)
-                echo -e "${YELLOW}Installing dependencies with apt...${NC}"
+                echo -e "${YELLOW}Installing jq with apt...${NC}"
                 sudo apt-get update
-                sudo apt-get install -y "${missing[@]}"
+                sudo apt-get install -y jq
                 ;;
             dnf|yum)
-                echo -e "${YELLOW}Installing dependencies with dnf/yum...${NC}"
-                sudo $(get_package_manager) install -y "${missing[@]}"
+                echo -e "${YELLOW}Installing jq with dnf/yum...${NC}"
+                sudo $(get_package_manager) install -y jq
                 ;;
             brew)
-                echo -e "${YELLOW}Installing dependencies with Homebrew...${NC}"
-                brew install "${missing[@]}"
+                echo -e "${YELLOW}Installing jq with Homebrew...${NC}"
+                brew install jq
                 ;;
             *)
-                echo -e "${RED}Error: Could not install dependencies automatically.${NC}"
-                echo "Please install the following packages manually: ${missing[*]}"
+                echo -e "${RED}Error: Could not install jq automatically.${NC}"
+                echo "Please install jq manually and run the installer again."
                 exit 1
                 ;;
         esac
+        
+        # Verify jq was installed successfully
+        if ! command -v jq &> /dev/null; then
+            echo -e "${RED}Failed to install jq. Installation cannot continue.${NC}"
+            exit 1
+        fi
+    fi
+    
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo -e "${RED}Error: Missing required dependencies: ${missing[*]}${NC}"
+        echo "Please install these dependencies and try again."
+        exit 1
     else
         echo -e "${GREEN}All dependencies are met!${NC}"
     fi
@@ -106,140 +131,154 @@ get_package_manager() {
     fi
 }
 
-# Function to download the latest release
-download_release() {
-    echo -e "\n${CYAN}Downloading latest AliasMate release...${NC}"
+# Function to download the source directly rather than using GitHub releases
+download_source() {
+    echo -e "\n${CYAN}Downloading AliasMate source code...${NC}"
     
-    # Get the latest release information
-    local api_url="https://api.github.com/repos/$REPO/releases/latest"
-    local latest_version
-    local download_url
-    
-    if ! latest_release=$(curl -s "$api_url"); then
-        echo -e "${RED}Error: Failed to fetch release information${NC}"
-        exit 1
-    fi
-    
-    latest_version=$(echo "$latest_release" | jq -r .tag_name)
-    echo -e "${GREEN}Found latest version: $latest_version${NC}"
-    
-    # Determine which asset to download based on OS and architecture
-    local os_name=$(uname -s | tr '[:upper:]' '[:lower:]')
-    local arch_name=$(uname -m)
-    
-    if [[ "$os_name" == "darwin" ]]; then
-        os_name="macos"
-    fi
-    
-    if [[ "$arch_name" == "x86_64" ]]; then
-        arch_name="amd64"
-    elif [[ "$arch_name" == "aarch64" ]]; then
-        arch_name="arm64"
-    fi
-    
-    # Find the appropriate download URL
-    if [[ "$os_name" == "linux" ]]; then
-        download_url=$(echo "$latest_release" | jq -r ".assets[] | select(.name | contains(\"$os_name\") and contains(\"$arch_name\") and (contains(\".deb\") or contains(\".tar.gz\"))) | .browser_download_url")
-    else
-        download_url=$(echo "$latest_release" | jq -r ".assets[] | select(.name | contains(\"$os_name\") and contains(\"$arch_name\")) | .browser_download_url")
-    fi
-    
-    if [[ -z "$download_url" ]]; then
-        echo -e "${RED}Error: Could not find a suitable download for your system ($os_name $arch_name)${NC}"
-        exit 1
-    fi
+    local download_url="https://github.com/$REPO/archive/main.tar.gz"
+    local source_archive="$TEMP_DIR/aliasmate-source.tar.gz"
     
     echo -e "${CYAN}Downloading from: $download_url${NC}"
     
-    # Download the release
-    local pkg_path="$TEMP_DIR/$(basename "$download_url")"
-    if ! curl -L "$download_url" -o "$pkg_path"; then
+    if ! curl -L "$download_url" -o "$source_archive"; then
         echo -e "${RED}Error: Download failed${NC}"
         exit 1
     fi
     
     echo -e "${GREEN}Download complete!${NC}"
     
-    # Install the package
-    install_package "$pkg_path"
+    # Extract the source code
+    echo -e "${CYAN}Extracting source code...${NC}"
+    mkdir -p "$TEMP_DIR/source"
+    tar -xzf "$source_archive" -C "$TEMP_DIR/source" --strip-components=1
+    
+    if [[ ! -d "$TEMP_DIR/source/src" ]]; then
+        echo -e "${RED}Error: Invalid source archive - 'src' directory not found${NC}"
+        exit 1
+    fi
+    
+    echo -e "${GREEN}Source code extracted successfully!${NC}"
+    
+    # Install from source
+    install_from_source "$TEMP_DIR/source"
 }
 
-# Function to install the package
-install_package() {
-    local pkg_path="$1"
+# Function to install from source
+install_from_source() {
+    local source_dir="$1"
     
-    echo -e "\n${CYAN}Installing AliasMate...${NC}"
+    echo -e "\n${CYAN}Installing AliasMate from source...${NC}"
     
     # Create necessary directories
     sudo mkdir -p "$INSTALL_DIR"
     sudo mkdir -p "$CONFIG_DIR"
     mkdir -p "$USER_CONFIG_DIR"
     mkdir -p "$DATA_DIR"
+    mkdir -p "$DATA_DIR/categories"
+    mkdir -p "$DATA_DIR/stats"
     
-    if [[ "$pkg_path" == *".deb" ]]; then
-        sudo dpkg -i "$pkg_path"
-        if [[ $? -ne 0 ]]; then
-            echo -e "${YELLOW}Fixing dependencies...${NC}"
-            sudo apt-get install -f -y
-        fi
-    elif [[ "$pkg_path" == *".rpm" ]]; then
-        sudo rpm -i "$pkg_path"
-    elif [[ "$pkg_path" == *".tar.gz" ]]; then
-        tar -xzf "$pkg_path" -C "$TEMP_DIR"
-        sudo cp -r "$TEMP_DIR/aliasmate"/* "$INSTALL_DIR/"
-        sudo chmod +x "$INSTALL_DIR/aliasmate"
+    # Copy source files
+    echo -e "${CYAN}Copying files to $INSTALL_DIR...${NC}"
+    
+    # Create a single executable script
+    echo -e "${CYAN}Creating main executable...${NC}"
+    cat > "$TEMP_DIR/aliasmate" << 'EOF'
+#!/usr/bin/env bash
+# AliasMate v2 - Main entry point wrapper
+
+# Find the real installation directory
+if [[ -L "$0" ]]; then
+    # Follow symlink to get the real path
+    REAL_PATH=$(readlink -f "$0")
+    INSTALL_DIR=$(dirname "$REAL_PATH")
+else
+    INSTALL_DIR=$(dirname "$0")
+fi
+
+# Source the main script
+if [[ -f "$INSTALL_DIR/main.sh" ]]; then
+    source "$INSTALL_DIR/main.sh" "$@"
+else
+    echo "Error: AliasMate installation is broken - main.sh not found"
+    echo "Expected location: $INSTALL_DIR/main.sh"
+    echo "Try reinstalling AliasMate."
+    exit 1
+fi
+EOF
+
+    # Make executable
+    chmod +x "$TEMP_DIR/aliasmate"
+    
+    # Copy the main executable
+    sudo cp "$TEMP_DIR/aliasmate" "$INSTALL_DIR/aliasmate"
+    
+    # Copy source files
+    sudo cp -r "$source_dir/src/"* "$INSTALL_DIR/"
+    sudo chmod +x "$INSTALL_DIR/"*.sh
+    
+    # Copy config files
+    if [[ -d "$source_dir/config" ]]; then
+        sudo cp -r "$source_dir/config/"* "$CONFIG_DIR/"
+        cp -r "$source_dir/config/"* "$USER_CONFIG_DIR/"
     else
-        echo -e "${RED}Error: Unsupported package format: $pkg_path${NC}"
+        # Create a basic config file if none exists
+        cat > "$TEMP_DIR/config.yaml" << EOF
+COMMAND_STORE: $DATA_DIR
+LOG_FILE: $USER_CONFIG_DIR/aliasmate.log
+LOG_LEVEL: info
+EDITOR: vi
+VERSION_CHECK: true
+THEME: default
+EOF
+        sudo cp "$TEMP_DIR/config.yaml" "$CONFIG_DIR/"
+        cp "$TEMP_DIR/config.yaml" "$USER_CONFIG_DIR/"
+    fi
+    
+    # Verify installation
+    if [[ ! -x "$INSTALL_DIR/aliasmate" ]]; then
+        echo -e "${RED}Error: Installation failed - executable not found${NC}"
+        echo "The aliasmate executable should be at $INSTALL_DIR/aliasmate"
         exit 1
     fi
     
-    # Set up configuration
-    if [[ ! -f "$CONFIG_DIR/config.yaml" ]]; then
-        sudo cp "$INSTALL_DIR/etc/aliasmate/config.yaml" "$CONFIG_DIR/"
+    # Create symlink if /usr/bin is in PATH but /usr/local/bin is not
+    if [[ ! ":$PATH:" == *":/usr/local/bin:"* ]] && [[ ":$PATH:" == *":/usr/bin:"* ]]; then
+        echo -e "${YELLOW}Creating symlink in /usr/bin for compatibility...${NC}"
+        sudo ln -sf "$INSTALL_DIR/aliasmate" /usr/bin/aliasmate
     fi
     
-    if [[ ! -f "$USER_CONFIG_DIR/config.yaml" ]]; then
-        cp "$INSTALL_DIR/etc/aliasmate/config.yaml" "$USER_CONFIG_DIR/"
-    fi
-    
-    # Set up shell completion
-    case "$SHELL" in
-        */bash)
-            # Set up Bash completion
-            if [[ ! -f "$HOME/.bashrc" ]]; then
-                touch "$HOME/.bashrc"
-            fi
-            
-            if ! grep -q "aliasmate completion" "$HOME/.bashrc"; then
-                echo -e "\n# AliasMate shell completion" >> "$HOME/.bashrc"
-                echo "source <(aliasmate completion bash)" >> "$HOME/.bashrc"
-                echo -e "${GREEN}Added Bash completion to ~/.bashrc${NC}"
-            fi
-            ;;
-        */zsh)
-            # Set up Zsh completion
-            if [[ ! -f "$HOME/.zshrc" ]]; then
-                touch "$HOME/.zshrc"
-            fi
-            
-            if ! grep -q "aliasmate completion" "$HOME/.zshrc"; then
-                echo -e "\n# AliasMate shell completion" >> "$HOME/.zshrc"
-                echo "source <(aliasmate completion zsh)" >> "$HOME/.zshrc"
-                echo -e "${GREEN}Added Zsh completion to ~/.zshrc${NC}"
-            fi
-            ;;
-    esac
-    
-    echo -e "${GREEN}Installation complete!${NC}"
-    echo -e "${CYAN}Try running: aliasmate --help${NC}"
+    echo -e "${GREEN}Installation from source complete!${NC}"
 }
 
 # Function to perform post-installation steps
 post_install() {
-    echo -e "\n${GREEN}AliasMate v2 has been successfully installed!${NC}"
+    echo -e "\n${GREEN}AliasMate v2 has been installed!${NC}"
+    
+    # Verify the installation
+    echo -e "${CYAN}Verifying installation...${NC}"
+    
+    if command -v aliasmate &> /dev/null; then
+        echo -e "${GREEN}  ✓ 'aliasmate' command is available${NC}"
+    else
+        echo -e "${RED}  ✗ 'aliasmate' command not found in PATH${NC}"
+        echo -e "${YELLOW}  You may need to add $INSTALL_DIR to your PATH${NC}"
+        echo -e "${YELLOW}  or create a symlink to $INSTALL_DIR/aliasmate in a directory in your PATH${NC}"
+        
+        # Suggest commands to fix PATH
+        echo -e "\n${CYAN}To add aliasmate to your PATH, run one of these commands:${NC}"
+        echo -e "  echo 'export PATH=\$PATH:$INSTALL_DIR' >> ~/.bashrc && source ~/.bashrc"
+        echo -e "  sudo ln -sf $INSTALL_DIR/aliasmate /usr/bin/aliasmate"
+    fi
+    
+    # Show where files are installed
+    echo -e "\n${CYAN}Installation locations:${NC}"
+    echo -e "  Executable: $INSTALL_DIR/aliasmate"
+    echo -e "  System config: $CONFIG_DIR"
+    echo -e "  User config: $USER_CONFIG_DIR"
+    echo -e "  Data directory: $DATA_DIR"
     
     # Offer to run the onboarding tutorial
-    if [[ -t 0 && -t 1 ]]; then  # Only offer if running in an interactive terminal
+    if [[ -t 0 && -t 1 ]] && command -v aliasmate &> /dev/null; then  # Only offer if running in an interactive terminal
         echo -e "\nWould you like to run the onboarding tutorial? [y/N]"
         read -r run_tutorial
         if [[ "$run_tutorial" =~ ^[Yy] ]]; then
@@ -259,22 +298,37 @@ cleanup() {
     rm -rf "$TEMP_DIR"
 }
 
+# Function to handle installation errors
+handle_error() {
+    echo -e "\n${RED}Error: Installation failed!${NC}"
+    echo -e "Please check the error messages above."
+    echo -e "If you need help, please open an issue at:"
+    echo -e "https://github.com/$REPO/issues"
+    
+    # Print debug information to help diagnose the issue
+    print_debug_info
+    
+    # Clean up before exiting
+    cleanup
+    exit 1
+}
+
 # Main installation flow
 main() {
+    # Set up error handling
+    trap handle_error ERR
+    
     detect_os
     check_dependencies
-    download_release
-    cleanup
+    download_source
+    post_install
     
     echo -e "\n${GREEN}┌────────────────────────────────────────┐${NC}"
     echo -e "${GREEN}│    AliasMate v2 installed successfully  │${NC}"
     echo -e "${GREEN}└────────────────────────────────────────┘${NC}"
     echo -e "${YELLOW}To get started, run:${NC} aliasmate --help"
     echo -e "${YELLOW}Or launch the TUI:${NC} aliasmate --tui"
-    echo -e "${YELLOW}Documentation:${NC} https://akhshyganesh.github.io/aliasmate-v2/docs/"
-    
-    # After completing the installation
-    post_install
+    echo -e "${YELLOW}For tutorials:${NC} aliasmate tutorial"
 }
 
 # Execute the main function

@@ -43,6 +43,24 @@ curl -sSL https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scrip
 wget -qO- https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scripts/install.sh | bash
 ```
 
+### Docker/Container Installation
+
+For Docker containers or environments where the standard installation doesn't work:
+
+```bash
+# Download and manually run the installation script
+wget -qO install.sh https://raw.githubusercontent.com/akhshyganesh/aliasmate-v2/main/scripts/install.sh
+chmod +x install.sh
+./install.sh
+
+# If the 'aliasmate' command is still not found, create a symlink
+sudo ln -sf /usr/local/bin/aliasmate /usr/bin/aliasmate
+
+# Or add to your PATH
+echo 'export PATH=$PATH:/usr/local/bin' >> ~/.bashrc
+source ~/.bashrc
+```
+
 ### Manual Installation
 
 ```bash

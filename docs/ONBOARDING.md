@@ -27,6 +27,46 @@ cd aliasmate-v2
 sudo ./scripts/install.sh
 ```
 
+## Troubleshooting Installation
+
+If you encounter issues during installation:
+
+### Command Not Found After Installation
+
+If the `aliasmate` command is not found after installation, try the following:
+
+1. **Add the installation directory to your PATH**:
+   ```bash
+   echo 'export PATH=$PATH:/usr/local/bin' >> ~/.bashrc
+   source ~/.bashrc
+   ```
+
+2. **Create a symlink in a directory that's in your PATH**:
+   ```bash
+   sudo ln -sf /usr/local/bin/aliasmate /usr/bin/aliasmate
+   ```
+
+3. **Check the installation log for errors**:
+   Look for error messages in the installation output.
+
+4. **Verify the executable exists**:
+   ```bash
+   ls -la /usr/local/bin/aliasmate
+   ```
+   If it exists but isn't working, ensure it has execute permissions:
+   ```bash
+   sudo chmod +x /usr/local/bin/aliasmate
+   ```
+
+5. **For Docker/container environments**:
+   Some containers may have limited PATH settings or security policies. 
+   Use the Docker-specific installation commands from the README.
+
+### For More Help
+
+If you continue to experience issues, please open an issue on our GitHub repository:
+[https://github.com/akhshyganesh/aliasmate-v2/issues](https://github.com/akhshyganesh/aliasmate-v2/issues)
+
 ## First Steps
 
 After installation, you'll want to:
