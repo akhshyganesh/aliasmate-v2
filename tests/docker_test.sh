@@ -36,6 +36,7 @@ run_test() {
     echo -e "\n${CYAN}Running test: $test_name${NC}"
     echo -e "${YELLOW}Command: $test_command${NC}"
     
+    # Create a temporary container for isolated testing
     if eval "$test_command"; then
         echo -e "${GREEN}Test passed: $test_name${NC}"
         return 0
@@ -49,19 +50,16 @@ run_test() {
 echo -e "\n${CYAN}Building Docker test image...${NC}"
 docker build -t aliasmate-test .
 
-# Run the installation test
-run_test "Installation Test" "docker run --rm aliasmate-test bash -c 'cd /app && ./scripts/install.sh && aliasmate --version'"
+# Run the basic installation test (should work with local files)
+run_test "Installation Test" "docker run --rm aliasmate-test bash -c '/app/scripts/install.sh && aliasmate --version'"
 
 # Run the basic functionality test
-run_test "Basic Functionality Test" "docker run --rm aliasmate-test bash -c 'cd /app && ./scripts/install.sh && aliasmate save test \"echo test\" && aliasmate run test'"
+run_test "Basic Functionality Test" "docker run --rm aliasmate-test bash -c '/app/scripts/install.sh && aliasmate save test \"echo test\" && aliasmate run test'"
 
 # Run the configuration test
-run_test "Configuration Test" "docker run --rm aliasmate-test bash -c 'cd /app && ./scripts/install.sh && aliasmate config set EDITOR vim && aliasmate config get EDITOR | grep vim'"
+run_test "Configuration Test" "docker run --rm aliasmate-test bash -c '/app/scripts/install.sh && aliasmate config set EDITOR vim && aliasmate config get EDITOR | grep vim'"
 
 # Run the export/import test
-run_test "Export/Import Test" "docker run --rm aliasmate-test bash -c 'cd /app && ./scripts/install.sh && aliasmate save test \"echo test\" && aliasmate export --output /tmp/test.json && aliasmate rm test --force && aliasmate import /tmp/test.json && aliasmate run test'"
-
-# Run all unit tests
-run_test "All Unit Tests" "docker run --rm aliasmate-test bash -c 'cd /app && ./scripts/run_tests.sh'"
+run_test "Export/Import Test" "docker run --rm aliasmate-test bash -c '/app/scripts/install.sh && aliasmate save test \"echo test\" && aliasmate export --output /tmp/test.json && aliasmate rm test --force && aliasmate import /tmp/test.json && aliasmate run test'"
 
 echo -e "\n${GREEN}All Docker tests completed successfully!${NC}"

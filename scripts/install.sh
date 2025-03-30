@@ -189,6 +189,13 @@ run_with_sudo() {
 download_source() {
     echo -e "\n${CYAN}Downloading AliasMate source code...${NC}"
     
+    # Check if we're inside a Docker container with the code mounted
+    if [ -f /.dockerenv ] && [ -d "/app/src" ]; then
+        echo -e "${CYAN}Detected Docker environment with code mounted, using local files${NC}"
+        install_from_source "/app"
+        return 0
+    fi
+    
     local download_url="https://github.com/$REPO/archive/main.tar.gz"
     local source_archive="$TEMP_DIR/aliasmate-source.tar.gz"
     

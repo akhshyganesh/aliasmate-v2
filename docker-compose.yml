@@ -9,4 +9,10 @@ services:
       - .:/app
     environment:
       - ALIASMATE_TEST_MODE=true
-    command: /bin/bash -c "cd /app && ./scripts/install.sh && bash"
+    command: |
+      bash -c "
+        echo 'Installing AliasMate from local source...'
+        cd /app && ./scripts/install.sh
+        echo 'Installation complete! Starting shell...'
+        exec bash
+      "
